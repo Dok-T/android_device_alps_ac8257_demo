@@ -1,0 +1,12 @@
+# init.recovery.ac8257.rc - TWRP pour Jancar UJC201 (AC8257)
+# L'USB (adb/MTP) est gere par l'init USB par defaut de TWRP via configfs.
+
+on init
+    setprop sys.usb.configfs 1
+    setprop sys.usb.controller "musb-hdrc"
+    setprop sys.usb.ffs.aio_compat 1
+
+on post-fs
+    # Liens attendus par les outils MTK pour la zone BOOT1 (preloader)
+    symlink /dev/block/mmcblk0boot0 /dev/block/platform/bootdevice/by-name/preloader_a
+    symlink /dev/block/mmcblk0boot1 /dev/block/platform/bootdevice/by-name/preloader_b
