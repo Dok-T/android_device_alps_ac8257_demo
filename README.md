@@ -24,3 +24,11 @@ puis adapte a la main (branche TWRP : **twrp-12.1**).
 ## Securite
 Garder le recovery stock : les mises a jour ATCUPG passent par lui.
 Ne jamais restaurer la partition "Preloader" depuis TWRP.
+
+## AVB (vbmeta stock analyse)
+- flags = 1 : dm-verity deja desactive, verification des signatures active
+- `recovery` et `system` sont en *chain partition* (cle Jancar), `recovery` sur rollback location 1
+- `boot` et `dtbo` en hash, `vendor` en hashtree
+- Le TWRP est signe avec la cle de test AVB : accepte car le bootloader est deverrouille
+  (meme mecanisme que le boot Magisk). Si le recovery est refuse au demarrage,
+  flasher `vbmeta_disabled.img` (flags = 3) sur la partition vbmeta, en gardant le vbmeta stock.

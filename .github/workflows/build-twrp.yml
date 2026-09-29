@@ -1,0 +1,109 @@
+name: Build TWRP (UJC201 / AC8257)
+
+on:
+  workflow_dispatch:
+    inputs:
+      MANIFEST_BRANCH:
+        description: 'Branche du manifeste minimal TWRP'
+        required: true
+        default: 'twrp-12.1'
+
+env:
+  MANIFEST_URL: https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp
+  DEVICE_PATH: device/alps/ac8257_demo
+  DEVICE_NAME: ac8257_demo
+  MAKEFILE_NAME: twrp_ac8257_demo
+  BUILD_TARGET: recovery
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+    - name: Check out device tree
+      uses: actions/checkout@v4
+      with:
+        path: device-tree
+
+    - name: Free disk space
+      uses: rokibhasansagar/slimhub_actions@main
+
+    - name: Prepare the environment
+      run: |
+        sudo apt update
+        DEBIAN_FRONTEND=noninteractive sudo apt install -yq \
+            gperf gcc-multilib g++-multilib libc6-dev lib32ncurses-dev x11proto-core-dev libx11-dev \
+            lib32z-dev libgl1-mesa-dev libxml2-utils xsltproc bc ccache lib32readline-dev lib32z1-dev \
+            liblz4-tool libncurses-dev libsdl1.2-dev build-essential git libxml2 lzop pngcrush \
+            schedtool squashfs-tools imagemagick libbz2-dev lzma ncftp qemu-user-static libncurses6 python3 tar
+
+    - name: Install OpenJDK
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'zulu'
+        java-version: '11'
+
+    - name: Install repo
+      run: |
+        mkdir -p ~/bin
+        curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
+        chmod a+x ~/bin/repo
+        sudo ln -sf ~/bin/repo /usr/bin/repo
+
+    - name: Initialize and sync sources
+      run: |
+        mkdir workspace && cd workspace
+        git config --global user.name "github-actions"
+        git config --global user.email "github-actions@users.noreply.github.com"
+        repo init --depth=1 -u $MANIFEST_URL -b ${{ github.event.inputs.MANIFEST_BRANCH }}
+        repo sync -j$(nproc --all) --force-sync --no-clone-bundle --no-tags
+
+    - name: Place device tree
+      run: |
+        mkdir -p workspace/$(dirname $DEVICE_PATH)
+        cp -r device-tree workspace/$DEVICE_PATH
+        rm -rf workspace/$DEVICE_PATH/.git workspace/$DEVICE_PATH/.github
+
+    - name: Set swap space
+      uses: pierotofy/set-swap-space@master
+      with:
+        swap-size-gb: 12
+
+    - name: Build recovery
+      working-directory: workspace
+      run: |
+        source build/envsetup.sh
+        export ALLOW_MISSING_DEPENDENCIES=true
+        lunch ${MAKEFILE_NAME}-eng
+        make clean
+        make ${BUILD_TARGET}image -j$(nproc --all) 2>&1 | tee build.log
+
+    - name: Upload build log
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-log
+        path: workspace/build.log
+        if-no-files-found: ignore
+
+    - name: Upload recovery artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: twrp-${{ env.DEVICE_NAME }}-${{ github.run_number }}
+        path: workspace/out/target/product/${{ env.DEVICE_NAME }}/${{ env.BUILD_TARGET }}.img
+
+    - name: Publish release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: workspace/out/target/product/${{ env.DEVICE_NAME }}/${{ env.BUILD_TARGET }}.img
+        name: TWRP UJC201 (AC8257) - build ${{ github.run_number }}
+        tag_name: twrp-build-${{ github.run_number }}
+        prerelease: true
+        body: |
+          TWRP non teste pour Jancar UJC201 (AC8257, carte JAC_8258C).
+          Manifeste : ${{ github.event.inputs.MANIFEST_BRANCH }}
+          Tester d'abord avec `fastboot boot recovery.img` si possible, sinon flasher UNIQUEMENT la partition recovery via SP Flash Tool.
+          Garder le recovery stock : les mises a jour ATCUPG en ont besoin.
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
