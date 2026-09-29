@@ -1,0 +1,11 @@
+# Blobs a extraire du vendor.img / system.img stock (UJC201-V1.1.04R1-240907)
+# A REMPLIR apres l'inventaire (etape 0). Exemples de sections :
+
+# Couche Jancar (a confirmer : system ou partition /jancar ?)
+# -system/priv-app/...(com.jancar.*)
+
+# Service MCU (liaison /dev/ttyS1 115200)
+# ...
+
+# Audio (DSP BD37534, amp YD7388) / radio (TEF68xx) / camera AHD (TP9963/TP2854)
+# ...
