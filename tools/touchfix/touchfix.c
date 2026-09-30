@@ -1,0 +1,150 @@
+/* touchfix - UJC201/AC8257 (TWRP)
+ *  - tactile : mtk-tpd rapporte des coordonnees paysage ~1024x600 (X inverse) alors qu'il annonce 720x1280.
+ *    On capture mtk-tpd (EVIOCGRAB) et on reemet sur un peripherique uinput "ujc201-touch".
+ *    TWRP (ev_get) met l'axe X a l'echelle de la largeur affichee apres rotation, donc pas d'echange X/Y.
+ *  - bandeau gauche (X brut > 1030) : zones power / home / back / vol+ / vol- -> touches.
+ *  - reveil du tactile : ecriture de 0 dans fb0/blank (notification ecran allume, sans eteindre la dalle).
+ *  - luminosite : TWRP ecrit 0..255 dans /tmp/twbl, pilote Jancar inverse (0 = max, 179 = min).
+ *  - barre d'etat : /tmp/twcpu (temperature CPU + tension d'entree, 2 sondes ADC).
+ * Usage: touchfix [rawx rawy swap flipu flipv outw outh]   (defaut : 1024 600 0 1 0 720 1280)
+ * Autonome (pas de libc) : syscalls aarch64 directs. */
+typedef unsigned long u64; typedef long s64; typedef unsigned short u16; typedef int s32; typedef unsigned int u32;
+static s64 sys(s64 n,s64 a,s64 b,s64 c,s64 d){register s64 x8 asm("x8")=n,x0 asm("x0")=a,x1 asm("x1")=b,x2 asm("x2")=c,x3 asm("x3")=d;
+ asm volatile("svc 0":"+r"(x0):"r"(x8),"r"(x1),"r"(x2),"r"(x3):"memory");return x0;}
+#define SYS_openat 56
+#define SYS_close 57
+#define SYS_read 63
+#define SYS_write 64
+#define SYS_ioctl 29
+#define SYS_nanosleep 101
+#define SYS_exit 93
+#define AT_FDCWD -100
+#define O_RDWR 2
+#define O_WRONLY 1
+#define O_RDONLY 0
+static int op(const char*p,int f){return (int)sys(SYS_openat,AT_FDCWD,(s64)p,f,0);}
+static void msleep(int ms){s64 ts[2]={ms/1000,(ms%1000)*1000000L};sys(SYS_nanosleep,(s64)ts,0,0,0);}
+static int slen(const char*s){int n=0;while(s[n])n++;return n;}
+static void logs(const char*s){int fd=op("/tmp/touchfix.log",O_WRONLY|0100|02000);if(fd>=0){sys(SYS_write,fd,(s64)s,slen(s),0);sys(SYS_close,fd,0,0,0);}}
+static int atoi_(const char*s){int n=0,g=1;if(*s=='-'){g=-1;s++;}while(*s>='0'&&*s<='9')n=n*10+(*s++-'0');return n*g;}
+static int streq(const char*a,const char*b){while(*a&&*a==*b){a++;b++;}return *a==*b;}
+/* ioctl numbers */
+#define IOC(d,t,n,s) (((d)<<30)|((s)<<16)|((t)<<8)|(n))
+#define EVIOCGNAME(len) IOC(2,'E',0x06,len)
+#define EVIOCGRAB IOC(1,'E',0x90,4)
+#define UI_SET_EVBIT IOC(1,'U',100,4)
+#define UI_SET_KEYBIT IOC(1,'U',101,4)
+#define UI_SET_ABSBIT IOC(1,'U',103,4)
+#define UI_SET_PROPBIT IOC(1,'U',110,4)
+#define UI_DEV_CREATE IOC(0,'U',1,0)
+struct ev{s64 sec,usec;u16 type,code;s32 value;};
+#define EV_SYN 0
+#define EV_KEY 1
+#define EV_ABS 3
+#define SYN_REPORT 0
+#define SYN_MT_REPORT 2
+#define BTN_TOUCH 0x14a
+#define ABS_X 0
+#define ABS_Y 1
+#define ABS_MT_TOUCH_MAJOR 0x30
+#define ABS_MT_POSITION_X 0x35
+#define ABS_MT_POSITION_Y 0x36
+#define ABS_MT_TRACKING_ID 0x39
+struct uidev{char name[80];u16 bustype,vendor,product,version;u32 ff;s32 absmax[64],absmin[64],absfuzz[64],absflat[64];};
+static struct uidev ud;
+static void emit(int fd,u16 t,u16 c,s32 v){struct ev e={0,0,t,c,v};sys(SYS_write,fd,(s64)&e,sizeof e,0);}
+/* ---- barre d'etat TWRP : /tmp/twcpu (affiche tel quel par tw_cpu_temp patche) ---- */
+static int rdint(const char*p){char b[32];int fd=op(p,O_RDONLY);if(fd<0)return -1;s64 n=sys(SYS_read,fd,(s64)b,31,0);sys(SYS_close,fd,0,0,0);if(n<=0)return -1;b[n]=0;return atoi_(b);}
+static int soc_ch4(void){ /* ligne "[ 4,2466, 902]-..." de AUXADC_read_channel */
+ static char b[1024];int fd=op("/sys/devices/virtual/mtk-adc-cali/mtk-adc-cali/AUXADC_read_channel",O_RDONLY);if(fd<0)return -1;
+ s64 n=sys(SYS_read,fd,(s64)b,1023,0);sys(SYS_close,fd,0,0,0);if(n<=0)return -1;b[n]=0;
+ for(int i=0;i<n;i++){if(b[i]=='['){int j=i+1;while(b[j]==' ')j++;if(b[j]=='4'&&b[j+1]==','){int c=0,k=j+2;while(k<n&&c<1){if(b[k]==',')c++;k++;}while(b[k]==' ')k++;return atoi_(b+k);}}}
+ return -1;}
+static char*pnum(char*o,int v){char t[12];int k=0;if(v<0){*o++='-';v=-v;}do{t[k++]='0'+v%10;v/=10;}while(v);while(k)*o++=t[--k];return o;}
+static char*pstr(char*o,const char*s){while(*s)*o++=*s++;return o;}
+static char*pvolt(char*o,int mv){ if(mv<0)return pstr(o,"--"); o=pnum(o,mv/1000);*o++='.';int c=(mv%1000)/10;*o++='0'+c/10;*o++='0'+c%10;*o++='V';return o;}
+static void status(void){
+ char s[96],*o=s;int t=rdint("/sys/class/thermal/thermal_zone1/temp");
+ /* sans le patch "texte" du binaire recovery (marqueur absent), TWRP attend un nombre : on ecrit la temperature brute */
+ {int m=op("/system/etc/ujc201_statustext",O_RDONLY);if(m<0){o=pnum(o,t);*o++='\n';
+   int fd=op("/tmp/twcpu",O_WRONLY|0100|01000);if(fd>=0){sys(SYS_write,fd,(s64)s,o-s,0);sys(SYS_close,fd,0,0,0);}return;} sys(SYS_close,m,0,0,0);}int a=soc_ch4();int v=rdint("/sys/bus/iio/devices/iio:device0/in_voltage2_VCDT_input");
+ o=pstr(o,"CPU: ");if(t>-100000){o=pnum(o,t/1000);o=pstr(o," \xC2\xB0""C");}else o=pstr(o,"--");
+ /* calibration 12.02 V : ch4 902 mV (x13.33), VCDT 649 mV (x18.52) - a valider en voiture */
+ o=pstr(o,"   Vin: ");o=pvolt(o,a<0?-1:(int)((s64)a*12020/902));o=pstr(o," | ");o=pvolt(o,v<0?-1:(int)((s64)v*12020/649));*o++='\n';
+ int fd=op("/tmp/twcpu",O_WRONLY|0100|01000);if(fd>=0){sys(SYS_write,fd,(s64)s,o-s,0);sys(SYS_close,fd,0,0,0);}
+}
+
+/* luminosite : TWRP ecrit 0..255 dans /tmp/twbl ; le pilote Jancar est inverse (0 = max, 179 = min) */
+#define SYS_clone 220
+static void bl_loop(void){
+ char buf[16];int last=-1,tick=0;
+ for(;;){ if((tick++%33)==0)status();int fd=op("/tmp/twbl",O_RDONLY);
+  if(fd>=0){s64 n=sys(SYS_read,fd,(s64)buf,15,0);sys(SYS_close,fd,0,0,0);
+   if(n>0){buf[n]=0;int v=atoi_(buf);if(v<0)v=0;if(v>255)v=255;
+    if(v!=last){last=v;int r=179-v*179/255;char o[8];int k=0;
+     if(r>=100)o[k++]='0'+r/100; if(r>=10)o[k++]='0'+(r/10)%10; o[k++]='0'+r%10;
+     int b=op("/sys/class/leds/lcd-backlight/brightness",O_WRONLY);if(b>=0){sys(SYS_write,b,(s64)o,k,0);sys(SYS_close,b,0,0,0);}}}}
+  msleep(150);}
+}
+void start_c(s64*sp){
+ int argc=(int)sp[0];char**argv=(char**)(sp+1);
+ int rawx=1024,rawy=600,swap=0,flipu=1,flipv=0,ow=720,oh=1280;
+ if(argc>=8){rawx=atoi_(argv[1]);rawy=atoi_(argv[2]);swap=atoi_(argv[3]);flipu=atoi_(argv[4]);flipv=atoi_(argv[5]);ow=atoi_(argv[6]);oh=atoi_(argv[7]);}
+ logs("touchfix: start\n");
+ status();
+ {int f=op("/tmp/twbl",O_WRONLY|0100|01000);if(f>=0){sys(SYS_write,f,(s64)"180",3,0);sys(SYS_close,f,0,0,0);}}
+ if(sys(SYS_clone,17/*SIGCHLD*/,0,0,0)==0){bl_loop();}
+ /* 1. peripherique virtuel (avant TWRP) */
+ int u=-1;for(int i=0;i<50&&u<0;i++){u=op("/dev/uinput",O_RDWR);if(u<0)u=op("/dev/input/uinput",O_RDWR);if(u<0)msleep(100);}
+ if(u<0){logs("touchfix: pas de /dev/uinput\n");sys(SYS_exit,1,0,0,0);}
+ sys(SYS_ioctl,u,UI_SET_EVBIT,EV_KEY,0);sys(SYS_ioctl,u,UI_SET_EVBIT,EV_ABS,0);sys(SYS_ioctl,u,UI_SET_EVBIT,EV_SYN,0);
+ sys(SYS_ioctl,u,UI_SET_KEYBIT,BTN_TOUCH,0);{int ks[]={116,172,158,115,114};for(int i=0;i<5;i++)sys(SYS_ioctl,u,UI_SET_KEYBIT,ks[i],0);}sys(SYS_ioctl,u,UI_SET_PROPBIT,1/*INPUT_PROP_DIRECT*/,0);
+ int abs_[]={ABS_X,ABS_Y,ABS_MT_TOUCH_MAJOR,ABS_MT_POSITION_X,ABS_MT_POSITION_Y,ABS_MT_TRACKING_ID};
+ for(int i=0;i<6;i++)sys(SYS_ioctl,u,UI_SET_ABSBIT,abs_[i],0);
+ const char*nm="ujc201-touch";for(int i=0;nm[i];i++)ud.name[i]=nm[i];
+ ud.bustype=0x19;ud.vendor=0x2be1;ud.product=0x0911;ud.version=1;
+ ud.absmax[ABS_X]=ow-1;ud.absmax[ABS_Y]=oh-1;ud.absmax[ABS_MT_POSITION_X]=ow-1;ud.absmax[ABS_MT_POSITION_Y]=oh-1;
+ ud.absmax[ABS_MT_TOUCH_MAJOR]=255;ud.absmax[ABS_MT_TRACKING_ID]=10;
+ sys(SYS_write,u,(s64)&ud,sizeof ud,0);
+ if(sys(SYS_ioctl,u,UI_DEV_CREATE,0,0)<0){logs("touchfix: UI_DEV_CREATE echec\n");sys(SYS_exit,1,0,0,0);}
+ logs("touchfix: uinput cree\n");
+ /* 2. trouver mtk-tpd */
+ int in=-1;char path[]="/dev/input/eventX";char name[64];
+ for(int t=0;t<200&&in<0;t++){for(int i=0;i<10&&in<0;i++){path[16]='0'+i;int fd=op(path,O_RDONLY);if(fd<0)continue;
+   for(int k=0;k<64;k++)name[k]=0;sys(SYS_ioctl,fd,EVIOCGNAME(63),(s64)name,0);
+   if(streq(name,"mtk-tpd"))in=fd;else sys(SYS_close,fd,0,0,0);} if(in<0)msleep(100);}
+ if(in<0){logs("touchfix: mtk-tpd introuvable\n");sys(SYS_exit,1,0,0,0);}
+ sys(SYS_ioctl,in,EVIOCGRAB,1,0);
+ logs("touchfix: mtk-tpd capture\n");
+ /* 3. reveiller le tactile (notification ecran allume, sans eteindre la dalle) */
+ msleep(1500);{int b=op("/sys/class/graphics/fb0/blank",O_WRONLY);if(b>=0){sys(SYS_write,b,(s64)"0",1,0);sys(SYS_close,b,0,0,0);logs("touchfix: unblank envoye\n");}}
+ /* 4. boucle : trames buffereesjusqu'a SYN_REPORT */
+ /* bandeau gauche : X brut > KEYX ; zones Y -> touches (power, home, back, vol+, vol-) */
+ const int KEYX=1030; const int ylo[5]={55,148,230,313,392}, yhi[5]={148,230,313,392,480};
+ const u16 kc[5]={116,172,158,115,114};
+ struct ev e[64],fr[128];int nf=0;s32 rx=0,ry=0;int got=0,contact=0,held=-1;
+ for(;;){s64 n=sys(SYS_read,in,(s64)e,sizeof e,0);if(n<=0){msleep(50);continue;}
+  for(int i=0;i<(int)(n/sizeof(struct ev));i++){struct ev*p=&e[i];
+   if(p->type==EV_ABS&&(p->code==ABS_MT_POSITION_X||p->code==ABS_X)){rx=p->value;got=1;contact=1;continue;}
+   if(p->type==EV_ABS&&(p->code==ABS_MT_POSITION_Y||p->code==ABS_Y)){ry=p->value;got=1;continue;}
+   if(!(p->type==EV_SYN&&p->code==SYN_REPORT)){
+     if(p->type==EV_SYN&&p->code==SYN_MT_REPORT){ /* point : on range la position transformee dans la trame */
+       if(got&&nf<124){s64 a=swap?ry:rx,am=swap?rawy:rawx,b=swap?rx:ry,bm=swap?rawx:rawy;
+         if(a<0)a=0;if(a>am)a=am;if(b<0)b=0;if(b>bm)b=bm;if(flipu)a=am-a;if(flipv)b=bm-b;
+         fr[nf].type=EV_ABS;fr[nf].code=ABS_MT_POSITION_X;fr[nf].value=(s32)(a*(ow-1)/am);nf++;
+         fr[nf].type=EV_ABS;fr[nf].code=ABS_MT_POSITION_Y;fr[nf].value=(s32)(b*(oh-1)/bm);nf++;}
+       got=0;}
+     if(nf<127)fr[nf++]=*p; continue;}
+   /* fin de trame */
+   int zone=-1; if(contact&&rx>KEYX){for(int k=0;k<5;k++)if(ry>=ylo[k]&&ry<yhi[k])zone=k;}
+   if(held>=0||(contact&&rx>KEYX)){
+     if(!contact){ if(held>=0){emit(u,EV_KEY,kc[held],0);emit(u,EV_SYN,SYN_REPORT,0);} held=-1; }
+     else if(held<0&&zone>=0){held=zone;emit(u,EV_KEY,kc[held],1);emit(u,EV_SYN,SYN_REPORT,0);}
+     /* sinon : doigt dans le bandeau hors zone, ou glisse -> ignore */
+   } else {
+     for(int k=0;k<nf;k++)emit(u,fr[k].type,fr[k].code,fr[k].value);
+     emit(u,EV_SYN,SYN_REPORT,0);
+   }
+   nf=0;contact=0;}}
+}
+__attribute__((naked)) void _start(void){asm volatile("mov x0, sp\n bl start_c\n mov x8,#93\n svc 0");}

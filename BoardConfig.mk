@@ -38,7 +38,7 @@ TARGET_SCREEN_DENSITY := 160
 # Kernel
 BOARD_BOOTIMG_HEADER_VERSION := 1
 BOARD_KERNEL_BASE := 0x40078000
-BOARD_KERNEL_CMDLINE := bootopt=64S3,32N2,64N2 buildvariant=user
+BOARD_KERNEL_CMDLINE := bootopt=64S3,32N2,64N2 buildvariant=user androidboot.selinux=permissive
 BOARD_KERNEL_PAGESIZE := 2048
 BOARD_RAMDISK_OFFSET := 0x11a88000
 BOARD_KERNEL_TAGS_OFFSET := 0x07808000
@@ -50,7 +50,9 @@ BOARD_KERNEL_SEPARATED_DTBO := true
 TARGET_KERNEL_CONFIG := ac8257_demo_defconfig
 TARGET_KERNEL_SOURCE := kernel/alps/ac8257_demo
 
-# Kernel - prebuilt
+# Kernel - prebuilt : noyau stock UJC201-V1.1.35R6-250718 (#25, 18/07/2025), extrait du recovery stock,
+# patche "skip_initramfs" -> "want_initramfs" (le LK ajoute skip_initramfs hors mode recovery).
+# prebuilt/dtbo.img = recovery_dtbo du recovery stock 250718.
 TARGET_FORCE_PREBUILT_KERNEL := true
 ifeq ($(TARGET_FORCE_PREBUILT_KERNEL),true)
 TARGET_PREBUILT_KERNEL := $(DEVICE_PATH)/prebuilt/kernel
@@ -84,12 +86,11 @@ TARGET_USES_MKE2FS := true
 VENDOR_SECURITY_PATCH := 2021-10-05
 
 # Verified Boot
-BOARD_AVB_ENABLE := true
-BOARD_AVB_MAKE_VBMETA_IMAGE_ARGS += --flags 3
-BOARD_AVB_RECOVERY_KEY_PATH := external/avb/test/data/testkey_rsa4096.pem
-BOARD_AVB_RECOVERY_ALGORITHM := SHA256_RSA4096
-BOARD_AVB_RECOVERY_ROLLBACK_INDEX := 1
-BOARD_AVB_RECOVERY_ROLLBACK_INDEX_LOCATION := 1
+# NE PAS signer le recovery avec une cle de test : le vbmeta stock chaine "recovery" avec la cle Jancar
+# et le fs_mgr d'Android 9 rejette une cle differente (avb_slot_verify result 5) -> kernel panic -> bootloop.
+# tools/ujc201_postprocess.py pose a la place la signature AVB du recovery stock (erreur de hash seulement,
+# toleree car device_state=unlocked).
+BOARD_AVB_ENABLE := false
 
 # Hack: prevent anti rollback
 PLATFORM_SECURITY_PATCH := 2099-12-31
@@ -98,22 +99,27 @@ PLATFORM_VERSION := 16.1.0
 BOARD_HAS_NO_SELECT_BUTTON := true
 
 # TWRP Configuration
-# Ecran MIPI 1280x720 en paysage (voir TW_ROTATION si l'image est tournee)
+# Dalle MIPI 720x1280 (fb0 portrait) montee en paysage : rotation 90 (persist.twrp.rotation, voir init.recovery.ac8257.rc)
 TW_THEME := landscape_hdpi
 TARGET_SCREEN_WIDTH := 1280
 TARGET_SCREEN_HEIGHT := 720
-# TW_ROTATION := 90
 TW_EXTRA_LANGUAGES := true
-TW_DEFAULT_LANGUAGE := fr
-TW_SCREEN_BLANK_ON_BOOT := true
+TW_DEFAULT_LANGUAGE := en
+# JAMAIS de FBIOBLANK : apres une extinction, le kthread Jancar "set lcd power off" coupe la dalle
+# juste apres le rallumage (ecran noir). TW_SCREEN_BLANK_ON_BOOT est donc interdit ; l'appel
+# FBIOBLANK de l'init fbdev de minui est neutralise par tools/ujc201_postprocess.py.
+TW_NO_SCREEN_BLANK := true
 TW_INPUT_BLACKLIST := "hbtp_vm"
 TW_USE_TOOLBOX := true
-TW_BRIGHTNESS_PATH := "/sys/class/leds/lcd-backlight/brightness"
+# Luminosite : pilote Jancar inverse (0 = max, 179 = min). TWRP ecrit dans /tmp/twbl, touchfix convertit.
+TW_BRIGHTNESS_PATH := "/tmp/twbl"
 TW_MAX_BRIGHTNESS := 255
 TW_DEFAULT_BRIGHTNESS := 180
 TW_FRAMERATE := 60
 TW_NO_BATT_PERCENT := true
 TW_NO_SCREEN_TIMEOUT := true
+# Barre d'etat : fichier ecrit par touchfix (temperature mtktscpu + tension d'entree)
+TW_CUSTOM_CPU_TEMP_PATH := "/tmp/twcpu"
 
 TW_HAS_MTP := true
 RECOVERY_SDCARD_ON_DATA := true
@@ -125,6 +131,4 @@ TW_INCLUDE_LIBRESETPROP := true
 TW_EXCLUDE_TWRPAPP := true
 TW_EXCLUDE_APEX := true
 TW_BACKUP_EXCLUSIONS := /data/fonts
-# Si les couleurs sont fausses (bleu/rouge inverses), essayer :
-# TARGET_RECOVERY_PIXEL_FORMAT := "RGBX_8888"
 TW_DEVICE_VERSION := UJC201-AC8257

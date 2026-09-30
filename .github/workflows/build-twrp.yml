@@ -87,23 +87,36 @@ jobs:
         path: workspace/build.log
         if-no-files-found: ignore
 
+    - name: Post-process (ecran, barre d'etat, theme, signature AVB stock)
+      run: |
+        OUT=workspace/out/target/product/${DEVICE_NAME}
+        python3 device-tree/tools/ujc201_postprocess.py \
+            $OUT/${BUILD_TARGET}.img $OUT/twrp_ujc201.img \
+            --avb device-tree/prebuilt/avb/recovery_stock_vbmeta_250718.bin \
+            --overlay device-tree/recovery/root
+        sha256sum $OUT/twrp_ujc201.img
+
     - name: Upload recovery artifact
       uses: actions/upload-artifact@v4
       with:
         name: twrp-${{ env.DEVICE_NAME }}-${{ github.run_number }}
-        path: workspace/out/target/product/${{ env.DEVICE_NAME }}/${{ env.BUILD_TARGET }}.img
+        path: |
+          workspace/out/target/product/${{ env.DEVICE_NAME }}/twrp_ujc201.img
+          workspace/out/target/product/${{ env.DEVICE_NAME }}/${{ env.BUILD_TARGET }}.img
 
     - name: Publish release
       uses: softprops/action-gh-release@v2
       with:
-        files: workspace/out/target/product/${{ env.DEVICE_NAME }}/${{ env.BUILD_TARGET }}.img
+        files: workspace/out/target/product/${{ env.DEVICE_NAME }}/twrp_ujc201.img
         name: TWRP UJC201 (AC8257) - build ${{ github.run_number }}
         tag_name: twrp-build-${{ github.run_number }}
         prerelease: true
         body: |
-          TWRP non teste pour Jancar UJC201 (AC8257, carte JAC_8258C).
+          TWRP pour Jancar UJC201 (AC8257, carte JAC_8258C), firmware stock UJC201-V1.1.35R6-250718.
           Manifeste : ${{ github.event.inputs.MANIFEST_BRANCH }}
-          Tester d'abord avec `fastboot boot recovery.img` si possible, sinon flasher UNIQUEMENT la partition recovery via SP Flash Tool.
-          Garder le recovery stock : les mises a jour ATCUPG en ont besoin.
+          Fichier a flasher : twrp_ujc201.img (post-traite, signature AVB du recovery stock).
+          NE PAS flasher recovery.img brut (ecran noir).
+          fastboot flash recovery twrp_ujc201.img   puis   fastboot oem reboot-recovery
+          Retour arriere : fastboot flash recovery <recovery stock>.img
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
