@@ -1,2 +1,4 @@
 __pycache__/
 *.pyc
+tools/bootmenu/ui_data.h
+*.img

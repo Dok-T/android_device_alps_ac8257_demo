@@ -94,6 +94,27 @@ TWRP ecrit dans `/tmp/twbl` (`TW_BRIGHTNESS_PATH`), `touchfix` convertit (`179 -
   PMIC `VCDT` (`iio:device0/in_voltage2_VCDT_input`, 649 mV, x18,52). Les deux suivent une chute sous charge ;
   rapports a confirmer entre 12,5 V et 14 V.
 
+## Menu de demarrage (optionnel) : TWRP / Android / Fastboot
+`tools/bootmenu/` : `/init` autonome place dans le ramdisk du **boot** (pas du recovery). A chaque demarrage,
+3 cartes (style Material, couleurs TWRP), Android demarre seul apres 3 s ; toucher l'ecran met en pause
+(Android au bout d'une minute sans action). Touches du bandeau : HOME = Android, BACK = TWRP.
+
+![bootmenu](tools/bootmenu/preview/bootmenu.png)
+
+- TWRP / Fastboot : `reboot(RESTART2, "recovery" | "bootloader")`, comme `adb reboot recovery`.
+- Android : monte `system` (PARTNAME=system) en lecture seule, bascule la racine dessus et lance son `/init`
+  (methode magiskinit pour le system-as-root « legacy »). Le noyau du boot est patche `want_initramfs`.
+- Partition boot = 10 Mo, noyau ~10,3 Mo : le ramdisk doit rester sous ~190 Ko (actuellement ~65 Ko).
+
+```
+python3 tools/bootmenu/gen_ui.py 3        # interface (3 s de delai) -> ui_data.h + preview/
+tools/bootmenu/build.sh                   # -> tools/bootmenu/bootmenu
+python3 tools/bootmenu/mkboot.py <dump boot stock>.img boot_bootmenu.img
+```
+Tester d'abord dans TWRP sans rien flasher (`bootmenu --test`, voir ci-dessous), puis
+`fastboot flash boot boot_bootmenu.img`. Retour : `fastboot flash boot <dump boot stock>.img`.
+Test sous qemu sans materiel : `qemu-aarch64 tools/bootmenu/bootmenu --dump out.raw <carte|-1> <message> <progression%>`.
+
 ## Fichiers
 - `prebuilt/kernel` : noyau stock 250718 (#25) + patch `want_initramfs`
 - `prebuilt/dtbo.img` : recovery_dtbo du recovery stock 250718
@@ -102,6 +123,7 @@ TWRP ecrit dans `/tmp/twbl` (`TW_BRIGHTNESS_PATH`), `touchfix` convertit (`179 -
 - `tools/touchfix/` : source de `touchfix` (C autonome, sans libc) + `build.sh`
 - `tools/apply_twrp_patches.py` : patchs du source TWRP (applique par le workflow)
 - `tools/ujc201_postprocess.py` : post-traitement de l'image (signature AVB, patchs binaires de secours)
+- `tools/bootmenu/` : menu de demarrage (source C, generateur d'interface, polices Roboto Apache 2.0, `mkboot.py`)
 
 ## Securite
 Ne jamais restaurer la partition « Preloader » depuis TWRP. Garder le recovery stock pour les mises a jour.
