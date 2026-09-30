@@ -65,6 +65,9 @@ jobs:
         cp -r device-tree workspace/$DEVICE_PATH
         rm -rf workspace/$DEVICE_PATH/.git workspace/$DEVICE_PATH/.github
 
+    - name: Apply UJC201 TWRP source patches
+      run: python3 device-tree/tools/apply_twrp_patches.py workspace/bootable/recovery
+
     - name: Set swap space
       uses: pierotofy/set-swap-space@master
       with:

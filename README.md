@@ -28,7 +28,14 @@ Faire d'abord une sauvegarde complete de l'eMMC (SP Flash Tool, Readback : `EMMC
 
 ## Build
 GitHub Actions (`.github/workflows/build-twrp.yml`, lancement manuel) :
-build TWRP puis `tools/ujc201_postprocess.py` → `twrp_ujc201.img`.
+1. `repo sync` du manifeste minimal twrp-12.1 ;
+2. `tools/apply_twrp_patches.py` patche le **source** TWRP (barre d'etat texte, theme) ;
+3. build `recoveryimage` avec les flags de `BoardConfig.mk` (pas de FBIOBLANK, luminosite, rotation…) ;
+4. `tools/ujc201_postprocess.py` pose la signature AVB du recovery stock (et applique en binaire ce qui
+   manquerait) → **`twrp_ujc201.img`**, publie en pre-release.
+
+Dans le log de l'etape « Post-process », verifier :
+`barre d'etat texte : deja geree par le source` et `FBIOBLANK neutralises : 0` (normal : l'ioctl n'est plus compile).
 
 Localement, a partir d'un `recovery.img` deja construit :
 ```
@@ -93,7 +100,8 @@ TWRP ecrit dans `/tmp/twbl` (`TW_BRIGHTNESS_PATH`), `touchfix` convertit (`179 -
 - `prebuilt/avb/recovery_stock_vbmeta_250718.bin` : vbmeta (footer) du recovery stock
 - `recovery/root/` : rc, `touchfix`, `usbmode`, `powerinfo`
 - `tools/touchfix/` : source de `touchfix` (C autonome, sans libc) + `build.sh`
-- `tools/ujc201_postprocess.py` : post-traitement de l'image
+- `tools/apply_twrp_patches.py` : patchs du source TWRP (applique par le workflow)
+- `tools/ujc201_postprocess.py` : post-traitement de l'image (signature AVB, patchs binaires de secours)
 
 ## Securite
 Ne jamais restaurer la partition « Preloader » depuis TWRP. Garder le recovery stock pour les mises a jour.

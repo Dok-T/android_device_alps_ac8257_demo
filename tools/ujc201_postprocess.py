@@ -7,7 +7,8 @@ Ce que le build TWRP ne sait pas faire seul (constate sur l'unite, firmware 2507
      Sur cette carte, l'extinction declenche le kthread Jancar "set lcd power off" qui coupe
      la dalle juste APRES le rallumage -> ecran noir. On remplace chaque `bl ioctl` precede de
      `mov w1, #0x4611` (FBIOBLANK) par `mov w0, #0`.
-  2. recovery : la barre du haut affiche %tw_cpu_temp% (entier). On patche la lecture pour afficher
+  2. recovery : la barre du haut affiche %tw_cpu_temp% (entier). Si le source n'a pas ete patche par
+     tools/apply_twrp_patches.py (chaine "UJC201-statustext" absente), on patche la lecture pour afficher
      le contenu texte de TW_CUSTOM_CPU_TEMP_PATH (/tmp/twcpu, ecrit par touchfix) :
      temperature + tension d'entree. Patch par motifs ; si le code ne correspond pas, il est
      simplement saute (touchfix ecrit alors un nombre, affichage "CPU: xx C" classique).
@@ -250,17 +251,25 @@ def main():
 
     e = find(ents, b'system/lib64/libminuitwrp.so')
     lib, n = patch_fbioblank(e[2]); e[2] = bytearray(lib)
-    log('FBIOBLANK neutralises :', n); assert n >= 2, 'appels FBIOBLANK introuvables'
+    log('FBIOBLANK neutralises :', n, '(0 = deja absent : build avec TW_NO_SCREEN_BLANK + TW_BRIGHTNESS_PATH)')
 
     e = find(ents, b'system/bin/recovery'); rec = bytearray(e[2])
     if replace_cstr(rec, b'/sys/class/leds/lcd-backlight/brightness', b'/tmp/twbl'): log('chemin luminosite -> /tmp/twbl')
     for z in (b'/sys/class/thermal/thermal_zone0/temp', b'/sys/class/thermal/thermal_zone1/temp'):
         if replace_cstr(rec, z, b'/tmp/twcpu'): log('chemin temperature -> /tmp/twcpu')
-    rec, ok = patch_cputemp_text(bytes(rec)); e[2] = bytearray(rec)
-    log('barre d\'etat texte :', 'OK' if ok else 'motif introuvable (affichage numerique conserve)')
+    if b'UJC201-statustext' in rec:
+        ok, src = True, True
+        log('barre d\'etat texte : deja geree par le source (tools/apply_twrp_patches.py)')
+    else:
+        src = False
+        rec, ok = patch_cputemp_text(bytes(rec)); e[2] = bytearray(rec)
+        log('barre d\'etat texte :', 'OK (patch binaire)' if ok else 'motif introuvable (affichage numerique conserve)')
 
     ui = find(ents, b'twres/ui.xml')
-    if ok:
+    if not ok:
+        m = find(ents, b'system/etc/ujc201_statustext')
+        if m: ents.remove(m)
+    if ok and not src:
         put(ents, b'system/etc/ujc201_statustext', b'1\n')
         s = bytes(ui[2]).decode()
         s = s.replace('<text>{@cpu_temp=CPU: %tw_cpu_temp% °C}</text>', '<text>%tw_cpu_temp%</text>')
