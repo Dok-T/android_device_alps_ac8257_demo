@@ -5,7 +5,8 @@
  *  - bandeau gauche (X brut > 1030) : zones power / home / back / vol+ / vol- -> touches.
  *  - reveil du tactile : ecriture de 0 dans fb0/blank (notification ecran allume, sans eteindre la dalle).
  *  - luminosite : TWRP ecrit 0..255 dans /tmp/twbl, pilote Jancar inverse (0 = max, 179 = min).
- *  - barre d'etat : /tmp/twcpu (temperature CPU + tension d'entree, 2 sondes ADC).
+ *  - barre d'etat : /tmp/twcpu (temperature CPU + tension d'entree, 2 sondes ADC) ;
+ *    MCU (ttyS1) : /tmp/twcar (ACC, frein a main, feux, version MCU), /tmp/mcu_version.
  * Usage: touchfix [rawx rawy swap flipu flipv outw outh]   (defaut : 1024 600 0 1 0 720 1280)
  * Autonome (pas de libc) : syscalls aarch64 directs. */
 typedef unsigned long u64; typedef long s64; typedef unsigned short u16; typedef int s32; typedef unsigned int u32;
@@ -70,8 +71,68 @@ static void status(void){
    int fd=op("/tmp/twcpu",O_WRONLY|0100|01000);if(fd>=0){sys(SYS_write,fd,(s64)s,o-s,0);sys(SYS_close,fd,0,0,0);}return;} sys(SYS_close,m,0,0,0);}int a=soc_ch4();int v=rdint("/sys/bus/iio/devices/iio:device0/in_voltage2_VCDT_input");
  o=pstr(o,"CPU: ");if(t>-100000){o=pnum(o,t/1000);o=pstr(o," \xC2\xB0""C");}else o=pstr(o,"--");
  /* calibration 12.02 V : ch4 902 mV (x13.33), VCDT 649 mV (x18.52) - a valider en voiture */
- o=pstr(o,"   Vin: ");o=pvolt(o,a<0?-1:(int)((s64)a*12020/902));o=pstr(o," | ");o=pvolt(o,v<0?-1:(int)((s64)v*12020/649));*o++='\n';
+ o=pstr(o,"   Vin: ");o=pvolt(o,a<0?-1:(int)((s64)a*12020/902));o=pstr(o," | ");o=pvolt(o,v<0?-1:(int)((s64)v*12020/649));
+ /* theme sans zone de droite (%tw_ujc201_car%) : etat vehicule compact a la suite */
+ {int m=op("/system/etc/ujc201_carstatus",O_RDONLY);if(m>=0)sys(SYS_close,m,0,0,0);
+  else{char c[48];int fd=op("/tmp/twcar_s",O_RDONLY);if(fd>=0){s64 n=sys(SYS_read,fd,(s64)c,47,0);sys(SYS_close,fd,0,0,0);
+   if(n>0){c[n]=0;while(n>0&&c[n-1]=='\n')c[--n]=0;o=pstr(o,"   ");o=pstr(o,c);}}}}
+ *o++='\n';
  int fd=op("/tmp/twcpu",O_WRONLY|0100|01000);if(fd>=0){sys(SYS_write,fd,(s64)s,o-s,0);sys(SYS_close,fd,0,0,0);}
+}
+
+/* ---- MCU Jancar (protocole JAC_V1, /dev/ttyS1 115200) : ACC, frein a main, feux, version ----
+ * trame : EE FA <len=donnees+1> <cmd> <donnees> <somme de tous les octets precedents>
+ * envoi : 0x1F 01 (PC_READY, comme Android au demarrage ; pas de battement de coeur sur AC8257), 0xF0 00 00 (etat ACC)
+ * recu  : 0x00 ACC, 0x04 frein a main, 0x0B feux, 0x1F etat groupe (b6 frein, b4 feux), 0x0A version (texte) */
+#define TCGETS 0x5401
+#define TCSETS 0x5402
+struct ktermios{u32 c_iflag,c_oflag,c_cflag,c_lflag;unsigned char c_line,c_cc[19];};
+static int m_acc=-1,m_hb=-1,m_ill=-1;static char m_ver[40];
+static void mcu_send(int fd,unsigned char cmd,const unsigned char*d,int n){unsigned char f[32];int k=0,sum=0;
+ f[k++]=0xEE;f[k++]=0xFA;f[k++]=(unsigned char)(n+1);f[k++]=cmd;for(int i=0;i<n;i++)f[k++]=d[i];
+ for(int i=0;i<k;i++)sum+=f[i];f[k++]=(unsigned char)sum;sys(SYS_write,fd,(s64)f,k,0);}
+static void wrtxt(const char*p,const char*s,int n){int fd=op(p,O_WRONLY|0100|01000);if(fd>=0){sys(SYS_write,fd,(s64)s,n,0);sys(SYS_close,fd,0,0,0);}}
+static char*onoff(char*o,int v){return pstr(o,v<0?"--":v?"ON":"OFF");}
+static void mcu_publish(void){char s[96],*o=s;
+ o=pstr(o,"ACC ");o=onoff(o,m_acc);o=pstr(o,"   HB ");o=onoff(o,m_hb);o=pstr(o,"   LIGHTS ");o=onoff(o,m_ill);
+ o=pstr(o,"   MCU ");{const char*v=m_ver;int i=0;while(v[i]&&v[i]!='-')i++;if(v[i]=='-'){v+=i+1;i=0;while(v[i]&&v[i]!='_'&&i<12){*o++=v[i];i++;}}
+  else if(*v){for(i=0;v[i]&&i<16;i++)*o++=v[i];}else o=pstr(o,"--");}
+ *o++='\n';wrtxt("/tmp/twcar",s,o-s);
+ o=s;o=pstr(o,"ACC:");o=onoff(o,m_acc);o=pstr(o," HB:");o=onoff(o,m_hb);o=pstr(o," ILL:");o=onoff(o,m_ill);*o++='\n';wrtxt("/tmp/twcar_s",s,o-s);}
+static void mcu_frame(const unsigned char*f,int n){unsigned char cmd=f[3];const unsigned char*d=f+4;int dl=f[2]-1;
+ if(cmd==0x00&&dl>=1)m_acc=d[0]==1;
+ else if(cmd==0x04&&dl>=1)m_hb=d[0]==1;
+ else if(cmd==0x0B&&dl>=1)m_ill=d[0]==1;
+ else if(cmd==0x1F&&dl>=1){m_hb=(d[0]>>6)&1;m_ill=(d[0]>>4)&1;}
+ else if(cmd==0x0A&&dl>0){int k=dl<39?dl:39;for(int i=0;i<k;i++)m_ver[i]=(d[i]>=32&&d[i]<127)?d[i]:'?';m_ver[k]=0;
+  char t[48];for(int i=0;i<=k;i++)t[i]=m_ver[i];t[k]='\n';wrtxt("/tmp/mcu_version",t,k+1);}
+ else return;
+ (void)n;mcu_publish();}
+static void mcu_loop(void){
+ mcu_publish();
+ int fd=-1;for(int t=0;t<100&&fd<0;t++){fd=op("/dev/ttyS1",O_RDWR|0400/*NOCTTY*/|04000/*NONBLOCK*/);if(fd<0)msleep(100);}
+ if(fd<0){logs("touchfix: /dev/ttyS1 introuvable\n");sys(SYS_exit,0,0,0,0);}
+ struct ktermios tio;if(sys(SYS_ioctl,fd,TCGETS,(s64)&tio,0)==0){
+  tio.c_iflag=0;tio.c_oflag=0;tio.c_lflag=0;
+  tio.c_cflag=(tio.c_cflag&~(0010017u/*CBAUD*/|0000060u/*CSIZE*/|0000400u/*PARENB*/|0000100u/*CSTOPB*/|020000000000u/*CRTSCTS*/))|0010002u/*B115200*/|0000060u/*CS8*/|0000200u/*CREAD*/|0004000u/*CLOCAL*/;
+  tio.c_cc[6]=0;tio.c_cc[5]=0;sys(SYS_ioctl,fd,TCSETS,(s64)&tio,0);}
+ logs("touchfix: MCU ttyS1 ouvert\n");
+ const unsigned char ready[1]={1},qacc[2]={0,0};
+ unsigned char buf[512];int bl=0,tries=0;s64 tick=0;
+ for(;;){
+  if(!m_ver[0]&&tries<3&&(tick%40)==0){mcu_send(fd,0x1F,ready,1);msleep(50);mcu_send(fd,0xF0,qacc,2);tries++;}
+  if(m_acc<0&&tick>0&&(tick%100)==0)mcu_send(fd,0xF0,qacc,2);
+  s64 n=sys(SYS_read,fd,(s64)(buf+bl),sizeof buf-bl,0);
+  if(n>0){bl+=(int)n;
+   for(;;){int i=0;while(i+1<bl&&!(buf[i]==0xEE&&buf[i+1]==0xFA))i++;
+    if(i>0){for(int j=i;j<bl;j++)buf[j-i]=buf[j];bl-=i;}
+    if(bl<5)break;int tot=buf[2]+4;if(tot<5||tot>255){for(int j=1;j<bl;j++)buf[j-1]=buf[j];bl--;continue;}
+    if(bl<tot)break;int sum=0;for(int j=0;j<tot-1;j++)sum+=buf[j];
+    if((unsigned char)sum==buf[tot-1])mcu_frame(buf,tot);
+    for(int j=tot;j<bl;j++)buf[j-tot]=buf[j];bl-=tot;}
+   if(bl>=(int)sizeof buf)bl=0;}
+  else msleep(100);
+  tick++;}
 }
 
 /* luminosite : TWRP ecrit 0..255 dans /tmp/twbl ; le pilote Jancar est inverse (0 = max, 179 = min) */
@@ -94,6 +155,7 @@ void start_c(s64*sp){
  status();
  {int f=op("/tmp/twbl",O_WRONLY|0100|01000);if(f>=0){sys(SYS_write,f,(s64)"180",3,0);sys(SYS_close,f,0,0,0);}}
  if(sys(SYS_clone,17/*SIGCHLD*/,0,0,0)==0){bl_loop();}
+ if(sys(SYS_clone,17/*SIGCHLD*/,0,0,0)==0){mcu_loop();}
  /* 1. peripherique virtuel (avant TWRP) */
  int u=-1;for(int i=0;i<50&&u<0;i++){u=op("/dev/uinput",O_RDWR);if(u<0)u=op("/dev/input/uinput",O_RDWR);if(u<0)msleep(100);}
  if(u<0){logs("touchfix: pas de /dev/uinput\n");sys(SYS_exit,1,0,0,0);}

@@ -265,6 +265,15 @@ def main():
         rec, ok = patch_cputemp_text(bytes(rec)); e[2] = bytearray(rec)
         log('barre d\'etat texte :', 'OK (patch binaire)' if ok else 'motif introuvable (affichage numerique conserve)')
 
+    # barre vehicule (%tw_ujc201_car%) : le marqueur dit a touchfix ou ecrire l'etat MCU
+    car = find(ents, b'system/etc/ujc201_carstatus')
+    if b'UJC201-carstatus' in rec:
+        if not car: put(ents, b'system/etc/ujc201_carstatus', b'1\n')
+        log('barre vehicule : zone de droite (source patche)')
+    else:
+        if car: ents.remove(car)
+        log('barre vehicule : mode compact (a la suite de la ligne CPU / Vin)')
+
     ui = find(ents, b'twres/ui.xml')
     if not ok:
         m = find(ents, b'system/etc/ujc201_statustext')

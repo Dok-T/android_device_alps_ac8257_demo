@@ -13,6 +13,7 @@ Arbre TWRP (branche **twrp-12.1**) pour les autoradios Android « UJC201 » (SIX
 | Cle USB | OK sur le port hote (xhci) ; port OTG basculable (Advanced > USB: Host mode) |
 | /data | OK (non chiffre sur ce firmware) |
 | Barre d'etat | temperature CPU (mtktscpu) + tension d'entree (2 sondes ADC, a valider en voiture) |
+| MCU Jancar (ttyS1) | ACC, frein a main, feux, version MCU (barre d'etat a droite ; Advanced > Power info) |
 
 ## Installer
 ```
@@ -114,6 +115,15 @@ python3 tools/bootmenu/mkboot.py <dump boot stock>.img boot_bootmenu.img
 Tester d'abord dans TWRP sans rien flasher (`bootmenu --test`, voir ci-dessous), puis
 `fastboot flash boot boot_bootmenu.img`. Retour : `fastboot flash boot <dump boot stock>.img`.
 Test sous qemu sans materiel : `qemu-aarch64 tools/bootmenu/bootmenu --dump out.raw <carte|-1> <message> <progression%>`.
+
+### 8. MCU Jancar
+Port `/dev/ttyS1` 115200 8N1, protocole « JAC_V1 » (appli `com.jancar.services`) :
+trame `EE FA <len = donnees+1> <cmd> <donnees> <somme des octets precedents>`.
+`touchfix` envoie `1F 01` (PC_READY, comme Android au demarrage ; pas de battement de coeur sur AC8257) et `F0 00 00`
+(etat ACC), puis lit `00` ACC, `04` frein a main, `0B` feux, `1F` etat groupe (b6 frein, b4 feux), `0A` version.
+Etat ecrit dans `/tmp/twcar` (affiche par `%tw_ujc201_car%`), `/tmp/twcar_s` et `/tmp/mcu_version`.
+LED des touches : commande `0F 04 <panneau> R G B <mode>` (R,G,B 0..99 ; mode 1 auto, 2 manuel, 3 semi-auto ;
+en manuel/semi-auto, allumees seulement feux allumes).
 
 ## Fichiers
 - `prebuilt/kernel` : noyau stock 250718 (#25) + patch `want_initramfs`
