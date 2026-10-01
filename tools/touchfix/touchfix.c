@@ -65,11 +65,21 @@ static int soc_ch4(void){ /* ligne "[ 4,2466, 902]-..." de AUXADC_read_channel *
 static char*pnum(char*o,int v){char t[12];int k=0;if(v<0){*o++='-';v=-v;}do{t[k++]='0'+v%10;v/=10;}while(v);while(k)*o++=t[--k];return o;}
 static char*pstr(char*o,const char*s){while(*s)*o++=*s++;return o;}
 static char*pvolt(char*o,int mv){ if(mv<0)return pstr(o,"--"); o=pnum(o,mv/1000);*o++='.';int c=(mv%1000)/10;*o++='0'+c/10;*o++='0'+c%10;*o++='V';return o;}
+/* tableau de bord TWRP : /tmp/ujc201/<nom> (variables %tw_ujc201_v_<nom>%) */
+static void dw(const char*n,const char*v,int l){char p[48],*o=p;o=pstr(o,"/tmp/ujc201/");o=pstr(o,n);*o=0;
+ int fd=op(p,O_WRONLY|0100|01000);if(fd<0){sys(34/*mkdirat*/,AT_FDCWD,(s64)"/tmp/ujc201",0755,0);fd=op(p,O_WRONLY|0100|01000);}
+ if(fd>=0){sys(SYS_write,fd,(s64)v,l,0);sys(SYS_close,fd,0,0,0);}}
+static void dwi(const char*n,int v){char t[16],*o=pnum(t,v);dw(n,t,(int)(o-t));}
+static int seg10(int v,int lo,int hi){if(v<=lo)return 0;if(v>=hi)return 10;return (v-lo)*10/(hi-lo);}
 static void status(void){
  char s[200],*o=s;int t=rdint("/sys/class/thermal/thermal_zone1/temp");
  /* sans le patch "texte" du binaire recovery (marqueur absent), TWRP attend un nombre : on ecrit la temperature brute */
  {int m=op("/system/etc/ujc201_statustext",O_RDONLY);if(m<0){o=pnum(o,t);*o++='\n';
    int fd=op("/tmp/twcpu",O_WRONLY|0100|01000);if(fd>=0){sys(SYS_write,fd,(s64)s,o-s,0);sys(SYS_close,fd,0,0,0);}return;} sys(SYS_close,m,0,0,0);}int a=soc_ch4();int v=rdint("/sys/bus/iio/devices/iio:device0/in_voltage2_VCDT_input");
+ {int m1=a<0?-1:(int)((s64)a*12020/902),m2=v<0?-1:(int)((s64)v*12020/649);char b[16],*q;
+  q=pvolt(b,m1);dw("vin1",b,(int)(q-b)-(m1>=0));q=pvolt(b,m2);dw("vin2",b,(int)(q-b)-(m2>=0));   /* sans le "V" */
+  dwi("vinseg",m1<0?0:seg10(m1,9000,15000));
+  if(t>0){dwi("cpu",t/1000);dwi("cpuseg",seg10(t/1000,30,90));}else dw("cpu","--",2);}
  o=pstr(o,"CPU: ");if(t>-100000){o=pnum(o,t/1000);o=pstr(o," \xC2\xB0""C");}else o=pstr(o,"--");
  /* calibration 12.02 V : ch4 902 mV (x13.33), VCDT 649 mV (x18.52) - a valider en voiture */
  o=pstr(o,"   Vin: ");o=pvolt(o,a<0?-1:(int)((s64)a*12020/902));o=pstr(o," | ");o=pvolt(o,v<0?-1:(int)((s64)v*12020/649));
@@ -116,6 +126,8 @@ static char*phex(char*o,int v){const char*h="0123456789ABCDEF";*o++=h[(v>>4)&15]
 static void mcu_publish(void){char s[128],*o=s;
  o=pstr(o,"ACC ");o=onoff(o,m_acc);o=pstr(o,"   HB ");o=onoff(o,m_hb);o=pstr(o,"   LIGHTS ");o=onoff(o,m_ill);
  *o++='\n';wrtxt("/tmp/twcar",s,o-s);
+ {char b[8],*q;q=onoff(b,m_acc);dw("acc",b,(int)(q-b));q=onoff(b,m_hb);dw("hb",b,(int)(q-b));q=onoff(b,m_ill);dw("ill",b,(int)(q-b));}
+ if(m_ver[0])dw("mcuver",m_ver,slen(m_ver));else dw("mcuver","no answer from MCU",18);
  o=s;o=pstr(o,"ACC:");o=onoff(o,m_acc);o=pstr(o," HB:");o=onoff(o,m_hb);o=pstr(o," ILL:");o=onoff(o,m_ill);*o++='\n';wrtxt("/tmp/twcar_s",s,o-s);}
 static int m_nlog;
 static void mcu_log(const char*tag,const unsigned char*f,int n){if(m_nlog>=1500)return;m_nlog++;
@@ -132,7 +144,7 @@ static s64 civil_days(int y,int m,int d){y-=m<=2;s64 era=(y>=0?y:y-399)/400;s64 
 static void mcu_clock(int h,int mi,int se){
  if(!c_ok||c_Y<2024||c_Y>2099||c_M<1||c_M>12||c_D<1||c_D>31||h>23||mi>59||se>59)return;
  char s[48],*o=s;o=pnum(o,c_Y);*o++='-';o=p2(o,c_M);*o++='-';o=p2(o,c_D);*o++=' ';o=p2(o,h);*o++=':';o=p2(o,mi);*o++=':';o=p2(o,se);
- *o++=' ';o=pnum(o,(int)now_ms());*o++='\n';wrtxt("/tmp/mcu_time",s,o-s);
+ dw("mcutime",s,(int)(o-s));*o++=' ';o=pnum(o,(int)now_ms());*o++='\n';wrtxt("/tmp/mcu_time",s,o-s);
  if(exists("/system/etc/ujc201_popup"))return;                 /* TWRP s'en charge (fuseau exact) */
  s64 loc=civil_days(c_Y,c_M,c_D)*86400+h*3600+mi*60+se;        /* heure locale comptee comme UTC */
  s64 tv[2];sys(SYS_gettimeofday,(s64)tv,0,0,0);s64 d=loc-tv[0],nt=0;
@@ -154,7 +166,7 @@ static s64 kcfg_sig=-1;
 static int tok(char**p,char*out,int max){char*s=*p;while(*s==' '||*s=='\t')s++;int n=0;while(*s&&*s!=' '&&*s!='\t'&&*s!='\n'&&*s!='\r'){if(n<max-1)out[n++]=*s;s++;}out[n]=0;*p=s;return n;}
 static void keys_load(void){
  s64 st[16];int w=-1;for(int i=0;i<3&&w<0;i++)if(sys(SYS_newfstatat,AT_FDCWD,(s64)kcfg[i],(s64)st,0)==0)w=i;
- s64 sig=w<0?0:(w+1)+st[6]*7+st[11]*131+st[12];if(sig==kcfg_sig)return;kcfg_sig=sig;nkm=0;if(w<0)return;
+ s64 sig=w<0?0:(w+1)+st[6]*7+st[11]*131+st[12];if(sig==kcfg_sig)return;kcfg_sig=sig;nkm=0;if(w<0){dwi("keymap",0);return;}
  static char b[4096];int fd=op(kcfg[w],O_RDONLY);if(fd<0)return;s64 n=sys(SYS_read,fd,(s64)b,4095,0);sys(SYS_close,fd,0,0,0);if(n<=0)return;b[n]=0;
  for(char*l=b;*l&&nkm<NMAP;){char*e=l;while(*e&&*e!='\n')e++;char c=*e;*e=0;
   char t[5][16];char*q=l;int k=0;while(k<5&&tok(&q,t[k],16))k++;
@@ -163,6 +175,7 @@ static void keys_load(void){
    char nm[16];if(!tok(&q,nm,14)){int i=0;for(;t[4][i]&&i<13;i++)nm[i]=t[4][i];nm[i]=0;}for(int i=0;i<14;i++)m->name[i]=nm[i];
    if(m->act>=0&&m->idx>=1&&m->idx<=4)nkm++;}
   *e=c;l=*e?e+1:e;}
+ dwi("keymap",nkm);
  char s[64],*o=s;o=pstr(o,"touchfix: touches volant : ");o=pnum(o,nkm);o=pstr(o," (");o=pstr(o,kcfg[w]);o=pstr(o,")\n");logs(s);}
 static int kfd=-1,k_held,k_map=-1,k_seq;static s64 k_last,k_hide;static char k_popup[160];
 static void key_emit(int code,int v){if(kfd<0||code<=0)return;emit(kfd,EV_KEY,(u16)code,v);emit(kfd,EV_SYN,SYN_REPORT,0);}
@@ -189,7 +202,9 @@ static void mcu_key(const unsigned char*d,int dl){
   if(acts[a].code>0)key_emit(acts[a].code,1);else if(acts[a].code<0)bl_step(acts[a].code==-1?1:-1);}
  else{o=pstr(o,"Steering wheel: unknown key\tch ");o=pnum(o,ch);o=pstr(o," \xC2\xB7 ");for(int i=1;i<5;i++){o=phex(o,v[i]);*o++=' ';}
   o=pstr(o,"\xC2\xB7 Advanced > Steering wheel keys");}
- *o++='\n';*o=0;}
+ *o++='\n';*o=0;
+ {char b[64],*q=b;if(k_map>=0){q=pstr(q,km[k_map].name);q=pstr(q," \xC2\xB7 ");q=pstr(q,acts[km[k_map].act].label);}
+  else{q=pstr(q,"ch ");q=pnum(q,ch);for(int i=1;i<5;i++){*q++=' ';q=phex(q,v[i]);}q=pstr(q," (?)");}dw("key",b,(int)(q-b));}}
 /* -- fenetres : /tmp/twpopup, une ligne par fenetre "<W|K|I>\t<titre>\t<texte>" (dessinees par TWRP patche) -- */
 static s64 w_until;static int w_prev=-1;static char pop_last[512];
 static void popup_update(void){
@@ -203,7 +218,8 @@ static void popup_update(void){
   if(fd>=0){s64 n=sys(SYS_read,fd,(s64)b,190,0);sys(SYS_close,fd,0,0,0);if(n>0){b[n]=0;while(n>0&&b[n-1]=='\n')b[--n]=0;o=pstr(o,"I\t");o=pstr(o,b);*o++='\n';}}}
  if(k_held||t<k_hide)o=pstr(o,k_popup);
  *o=0;if(streq(s,pop_last))return;for(int i=0;i<=o-s;i++)pop_last[i]=s[i];wrtxt("/tmp/twpopup",s,o-s);}
-static void mcu_frame(const unsigned char*f,int n){unsigned char cmd=f[3];const unsigned char*d=f+4;int dl=f[2]-1;mcu_log("rx",f,n);
+static int m_frames;
+static void mcu_frame(const unsigned char*f,int n){unsigned char cmd=f[3];const unsigned char*d=f+4;int dl=f[2]-1;mcu_log("rx",f,n);dwi("frames",++m_frames);
  if(cmd==0x00&&dl>=1)m_acc=d[0]==1;
  else if(cmd==0x04&&dl>=1)m_hb=d[0]==1;
  else if(cmd==0x0B&&dl>=1)m_ill=d[0]==1;
@@ -218,6 +234,7 @@ static void mcu_frame(const unsigned char*f,int n){unsigned char cmd=f[3];const 
 static void mcu_loop(void){
  wrtxt("/tmp/twpopup","",0);
  wheel_dev();                                            /* avant le demarrage de TWRP (scan /dev/input) */
+ dw("key","none yet",8);dwi("frames",0);dw("mcutime","--",2);dwi("keymap",0);
  mcu_publish();keys_load();
  int fd=-1;for(int t=0;t<100&&fd<0;t++){fd=op("/dev/ttyS1",O_RDWR|0400/*NOCTTY*/|04000/*NONBLOCK*/);if(fd<0)msleep(100);}
  if(fd<0){logs("touchfix: /dev/ttyS1 introuvable\n");sys(SYS_exit,0,0,0,0);}
@@ -252,7 +269,7 @@ static void bl_loop(void){
  char buf[16];int last=-1,tick=0;s64 psig=0;
  for(;;){ s64 sig=0;{char p[96];int fd=op("/tmp/twpopup",O_RDONLY);if(fd>=0){s64 n=sys(SYS_read,fd,(s64)p,95,0);sys(SYS_close,fd,0,0,0);
      for(int i=0;i<n;i++)sig=sig*31+p[i];sig+=n;}}
-  if((tick++%33)==0||sig!=psig){psig=sig;status();}int fd=op("/tmp/twbl",O_RDONLY);
+  if((tick++%7)==0||sig!=psig){psig=sig;status();}int fd=op("/tmp/twbl",O_RDONLY);
   if(fd>=0){s64 n=sys(SYS_read,fd,(s64)buf,15,0);sys(SYS_close,fd,0,0,0);
    if(n>0){buf[n]=0;int v=atoi_(buf);if(v<0)v=0;if(v>255)v=255;
     if(v!=last){last=v;int r=179-v*179/255;char o[8];int k=0;

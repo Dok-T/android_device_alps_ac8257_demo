@@ -5,13 +5,13 @@ apply_twrp_patches.py - patchs source TWRP (bootable/recovery, branche android-1
   1. data.cpp : tw_cpu_temp affiche tel quel le texte de TW_CUSTOM_CPU_TEMP_PATH s'il contient "CPU"
      (barre d'etat ecrite par touchfix : temperature + tension d'entree). Sinon comportement d'origine.
   2. Theme landscape_hdpi/ui.xml : en-tete "%tw_cpu_temp%" au lieu de "CPU: %tw_cpu_temp% °C".
-  3. Theme common/landscape.xml : entrees Advanced "Power info", "USB: Host mode", "USB: PC mode".
+  3. Theme (tools/ujc201_theme.py) : entrees Advanced (sortie des scripts dans la console) et page graphique
+     "Vehicle / MCU dashboard" ; data.cpp : variables %tw_ujc201_v_<nom>% = /tmp/ujc201/<nom> (marqueur UJC201-dash).
   4. data.cpp + theme : variable %tw_ujc201_car% (texte de /tmp/twcar, ecrit par touchfix : ACC, frein a main,
      feux) affichee a droite de la barre d'etat (place de la batterie, absente sur cette carte).
   5. gui/pages.cpp : fenetres "snackbar" dessinees par-dessus toutes les pages (texte /tmp/twpopup ecrit par
      touchfix : feux allumes, touche au volant, invite de wheelkeys) + reglage de l'horloge sur l'heure du MCU
      (/tmp/mcu_time, heure locale -> mktime() dans le fuseau TWRP).
-  6. Theme common/landscape.xml : entrees Advanced "Steering wheel keys" (wheelkeys learn / show).
 
 L'ecran (FBIOBLANK) n'a pas besoin de patch source : TW_NO_SCREEN_BLANK + TW_BRIGHTNESS_PATH +
 TW_MAX_BRIGHTNESS font ecrire fbdev_blank() dans le fichier de luminosite au lieu de l'ioctl.
@@ -19,6 +19,8 @@ TW_MAX_BRIGHTNESS font ecrire fbdev_blank() dans le fichier de luminosite au lie
 Usage : apply_twrp_patches.py <workspace>/bootable/recovery   (idempotent)
 """
 import os, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import ujc201_theme  # noqa: E402
 
 MARK = 'UJC201-statustext'
 
@@ -76,19 +78,6 @@ CAR_ITEM = '''
 UI_OLD = '<text>{@cpu_temp=CPU: %tw_cpu_temp% °C}</text>'
 UI_NEW = '<text>%tw_cpu_temp%</text>'
 
-ADV_ANCHOR = '''			<listbox style="advanced_listbox">
-				<placement x="%center_x%" y="%row2_y%" w="%content_half_width%" h="%fileselector_install_height%"/>
-'''
-ADV_ITEMS = '''				<listitem name="Power info (Vin / CPU)">
-					<action function="cmd">/system/bin/powerinfo</action>
-				</listitem>
-				<listitem name="USB: Host mode (USB drive)">
-					<action function="cmd">/system/bin/usbmode host</action>
-				</listitem>
-				<listitem name="USB: PC mode (ADB / MTP)">
-					<action function="cmd">/system/bin/usbmode device</action>
-				</listitem>
-'''
 
 PAGES_RENDER_OLD = """int PageManager::Render(void)
 {
@@ -279,19 +268,27 @@ PAGES_UPDATE_NEW = """	int res = (mCurrentSet ? mCurrentSet->Update() : -1);
 	{
 		int c_res = mMouseCursor->Update();"""
 
-WHEEL_ANCHOR = """					<action function="cmd">/system/bin/usbmode device</action>
-				</listitem>
-"""
-WHEEL_ITEMS = """				<listitem name="MCU info (firmware version)">
-					<action function="cmd">/system/bin/mcuinfo</action>
-				</listitem>
-				<listitem name="Steering wheel keys: learn">
-					<action function="cmd">/system/bin/wheelkeys learn</action>
-				</listitem>
-				<listitem name="Steering wheel keys: show / test">
-					<action function="cmd">/system/bin/wheelkeys show</action>
-				</listitem>
-"""
+DASH_OLD = """		value = txt;
+		return 0;
+	}
+	return -1;
+}"""
+DASH_NEW = """		value = txt;
+		return 0;
+	}
+	else if (varName.compare(0, 12, "tw_ujc201_v_") == 0)
+	{
+		/* UJC201-dash : valeurs du tableau de bord vehicule (/tmp/ujc201/<nom>, ecrites par touchfix) */
+		string txt;
+		if (TWFunc::read_file("/tmp/ujc201/" + varName.substr(12), txt) != 0)
+			txt = "--";
+		while (!txt.empty() && (txt.back() == '\\n' || txt.back() == '\\r'))
+			txt.pop_back();
+		value = txt;
+		return 0;
+	}
+	return -1;
+}"""
 
 def patch(path, old, new, done_marker, count=1):
     s = open(path, encoding='utf-8').read()
@@ -318,8 +315,14 @@ def main():
         open(ui, 'w', encoding='utf-8').write(t.replace(CAR_ANCHOR, CAR_ANCHOR + CAR_ITEM, 1)); print('patche : barre vehicule (droite)')
     else:
         print('ATTENTION : ancre batterie introuvable, barre vehicule non ajoutee (touchfix passe en mode compact)')
-    patch(j('gui/theme/common/landscape.xml'), ADV_ANCHOR, ADV_ANCHOR + ADV_ITEMS, 'Power info (Vin / CPU)')
-    patch(j('gui/theme/common/landscape.xml'), WHEEL_ANCHOR, WHEEL_ANCHOR + WHEEL_ITEMS, 'MCU info (firmware')
+    patch(j('data.cpp'), DASH_OLD, DASH_NEW, 'UJC201-dash :')
+    # marqueur dans le binaire (lu par ujc201_postprocess.py pour ajouter le tableau de bord)
+    patch(j('data.cpp'), '\tprintf("UJC201-carstatus\\n");\n',
+          '\tprintf("UJC201-carstatus\\n");\n\tprintf("UJC201-dash\\n");\n', 'printf("UJC201-dash')
+    la, ui = j('gui/theme/common/landscape.xml'), j('gui/theme/landscape_hdpi/ui.xml')
+    l2, u2, msg = ujc201_theme.apply(open(la, encoding='utf-8').read(), open(ui, encoding='utf-8').read(), dash=True)
+    open(la, 'w', encoding='utf-8').write(l2); open(ui, 'w', encoding='utf-8').write(u2)
+    print('theme :', ', '.join(msg))
     # Render d'abord (le marqueur UJC201-popup est dans le bloc insere avant Render), puis Update
     patch(j('gui/pages.cpp'), PAGES_RENDER_OLD, PAGES_RENDER_NEW, 'UJC201-popup')
     patch(j('gui/pages.cpp'), PAGES_UPDATE_OLD, PAGES_UPDATE_NEW, 'UJC201 : fenetre apparue')

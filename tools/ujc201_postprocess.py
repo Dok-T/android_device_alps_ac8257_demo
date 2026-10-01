@@ -23,6 +23,8 @@ Usage :
         [--kernel prebuilt/kernel] [--dtbo prebuilt/dtbo.img] [--overlay recovery/root]
 """
 import argparse, gzip, hashlib, os, stat, struct, subprocess, sys, zlib
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import ujc201_theme  # noqa: E402
 
 PART_SIZE = 0x2000000  # partition recovery : 32 Mo
 
@@ -211,34 +213,6 @@ def patch_cputemp_text(rec):
     return rec, False
 
 # ---------------------------------------------------------------- theme
-ADV_ANCHOR = '''			<listbox style="advanced_listbox">
-				<placement x="%center_x%" y="%row2_y%" w="%content_half_width%" h="%fileselector_install_height%"/>
-'''
-ADV_ITEMS = '''				<listitem name="Power info (Vin / CPU)">
-					<action function="cmd">/system/bin/powerinfo</action>
-				</listitem>
-				<listitem name="USB: Host mode (USB drive)">
-					<action function="cmd">/system/bin/usbmode host</action>
-				</listitem>
-				<listitem name="USB: PC mode (ADB / MTP)">
-					<action function="cmd">/system/bin/usbmode device</action>
-				</listitem>
-'''
-
-WHEEL_ANCHOR = '''					<action function="cmd">/system/bin/usbmode device</action>
-				</listitem>
-'''
-WHEEL_ITEMS = '''				<listitem name="MCU info (firmware version)">
-					<action function="cmd">/system/bin/mcuinfo</action>
-				</listitem>
-				<listitem name="Steering wheel keys: learn">
-					<action function="cmd">/system/bin/wheelkeys learn</action>
-				</listitem>
-				<listitem name="Steering wheel keys: show / test">
-					<action function="cmd">/system/bin/wheelkeys show</action>
-				</listitem>
-'''
-
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('inp'); ap.add_argument('out')
@@ -306,11 +280,13 @@ def main():
         s = bytes(ui[2]).decode()
         s = s.replace('<text>{@cpu_temp=CPU: %tw_cpu_temp% °C}</text>', '<text>%tw_cpu_temp%</text>')
         ui[2] = bytearray(s.encode())
-    la = find(ents, b'twres/landscape.xml'); s = bytes(la[2]).decode()
-    if 'Power info' not in s and ADV_ANCHOR in s:
-        s = s.replace(ADV_ANCHOR, ADV_ANCHOR + ADV_ITEMS); la[2] = bytearray(s.encode()); log('theme : entrees Advanced ajoutees')
-    if 'MCU info (firmware' not in s and WHEEL_ANCHOR in s:
-        s = s.replace(WHEEL_ANCHOR, WHEEL_ANCHOR + WHEEL_ITEMS); la[2] = bytearray(s.encode()); log('theme : entrees volant ajoutees')
+    # theme : entrees Advanced (sortie console) + tableau de bord si le binaire gere %tw_ujc201_v_*%
+    la = find(ents, b'twres/landscape.xml')
+    l2, u2, msg = ujc201_theme.apply(bytes(la[2]).decode(), bytes(ui[2]).decode(), dash=b'UJC201-dash' in rec)
+    la[2] = bytearray(l2.encode()); ui[2] = bytearray(u2.encode())
+    log('theme :', ', '.join(msg))
+    if b'UJC201-dash' not in rec:
+        log('tableau de bord : absent (binaire sans patch data.cpp UJC201-dash -> build GitHub)')
 
     pd = find(ents, b'prop.default')
     if pd and b'persist.twrp.rotation' not in pd[2]:

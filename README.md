@@ -121,7 +121,9 @@ Port `/dev/ttyS1` 115200 8N1, protocole « JAC_V1 » (appli `com.jancar.services
 trame `EE FA <len = donnees+1> <cmd> <donnees> <somme des octets precedents>`.
 `touchfix` envoie `1F 01` (PC_READY, comme Android au demarrage ; pas de battement de coeur sur AC8257) et `F0 00 00`
 (etat ACC), puis lit `00` ACC, `04` frein a main, `0B` feux, `1F` etat groupe (b6 frein, b4 feux), `0A` version.
-Etat ecrit dans `/tmp/twcar` (affiche par `%tw_ujc201_car%`), `/tmp/twcar_s` et `/tmp/mcu_version`.
+Etat ecrit dans `/tmp/twcar` (affiche par `%tw_ujc201_car%`), `/tmp/twcar_s`, `/tmp/mcu_version` et `/tmp/ujc201/<nom>`
+(page graphique Advanced > *Vehicle / MCU dashboard*, variables `%tw_ujc201_v_<nom>%`, build GitHub).
+Les entrees Advanced passent par `terminalcommand` : la sortie des scripts s'affiche dans la console (l'action `cmd` n'affiche rien).
 LED des touches : commande `0F 04 <panneau> R G B <mode>` (R,G,B 0..99 ; mode 1 auto, 2 manuel, 3 semi-auto ;
 en manuel/semi-auto, allumees seulement feux allumes).
 
@@ -152,6 +154,7 @@ TWRP n'a pas de navigation au clavier : `back` = page precedente, `home` = menu 
 - `recovery/root/` : rc, `touchfix`, `usbmode`, `powerinfo`, `mcuinfo`, `wheelkeys`, `ujc201_keys.conf`
 - `tools/touchfix/` : source de `touchfix` (C autonome, sans libc) + `build.sh`
 - `tools/apply_twrp_patches.py` : patchs du source TWRP (applique par le workflow)
+- `tools/ujc201_theme.py` : entrees Advanced + page graphique (partage source / post-traitement)
 - `tools/ujc201_postprocess.py` : post-traitement de l'image (signature AVB, patchs binaires de secours)
 - `tools/bootmenu/` : menu de demarrage (source C, generateur d'interface, polices Roboto Apache 2.0, `mkboot.py`)
 
