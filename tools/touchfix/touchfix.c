@@ -108,8 +108,8 @@ static void status(void){
   else{char c[48];int fd=op("/tmp/twcar_s",O_RDONLY);if(fd>=0){s64 n=sys(SYS_read,fd,(s64)c,47,0);sys(SYS_close,fd,0,0,0);
    if(n>0){c[n]=0;while(n>0&&c[n-1]=='\n')c[--n]=0;o=pstr(o,"   ");o=pstr(o,c);}}}}
  *o++='\n';
- /* binaire TWRP sans fenetres (marqueur /system/etc/ujc201_popup absent) : titre de la 1re fenetre en tete de ligne */
- {int m=op("/system/etc/ujc201_popup",O_RDONLY);if(m>=0)sys(SYS_close,m,0,0,0);
+ /* ni fenetres TWRP (marqueur ujc201_popup) ni bandeau du theme (ujc201_banner) : titre en tete de ligne */
+ {int m=op("/system/etc/ujc201_popup",O_RDONLY);if(m<0)m=op("/system/etc/ujc201_banner",O_RDONLY);if(m>=0)sys(SYS_close,m,0,0,0);
   else{char p[96];int fd=op("/tmp/twpopup",O_RDONLY);if(fd>=0){s64 n=sys(SYS_read,fd,(s64)p,95,0);sys(SYS_close,fd,0,0,0);
    if(n>2&&p[1]=='\t'){char t[200],*q=t;q=pstr(q,"[");for(int i=2;i<n&&p[i]!='\t'&&p[i]!='\n';i++)*q++=p[i];q=pstr(q,"]  ");
     for(char*r=s;r<o;)*q++=*r++;int l=(int)(q-t);if(l>190)l=190;for(int i=0;i<l;i++)s[i]=t[i];o=s+l;}}}}
@@ -237,7 +237,13 @@ static void popup_update(void){
  {static char b[200];int fd=op("/tmp/wheelkeys.prompt",O_RDONLY);       /* invite de wheelkeys learn */
   if(fd>=0){s64 n=sys(SYS_read,fd,(s64)b,190,0);sys(SYS_close,fd,0,0,0);if(n>0){b[n]=0;while(n>0&&b[n-1]=='\n')b[--n]=0;o=pstr(o,"I\t");o=pstr(o,b);*o++='\n';}}}
  if(k_held||t<k_hide)o=pstr(o,k_popup);
- *o=0;if(streq(s,pop_last))return;for(int i=0;i<=o-s;i++)pop_last[i]=s[i];wrtxt("/tmp/twpopup",s,o-s);}
+ *o=0;if(streq(s,pop_last))return;for(int i=0;i<=o-s;i++)pop_last[i]=s[i];wrtxt("/tmp/twpopup",s,o-s);
+ /* bandeau du theme (binaire sans fenetres) : une seule ligne, priorite invite > touche > avertissement */
+ const char*l=0;for(const char*pr="IKW";*pr&&!l;pr++)for(const char*q=s;*q;){if(q[0]==*pr&&q[1]=='\t'){l=q;break;}while(*q&&*q!='\n')q++;if(*q)q++;}
+ if(!l){dw("pop_k","",0);dw("pop_t","",0);dw("pop_x","",0);return;}
+ const char*ti=l+2,*te=ti;while(*te&&*te!='\t'&&*te!='\n')te++;
+ const char*xs=te,*xe=te;if(*te=='\t'){xs=te+1;xe=xs;while(*xe&&*xe!='\n')xe++;}
+ dw("pop_t",ti,(int)(te-ti));dw("pop_x",xs,(int)(xe-xs));dw("pop_k",l,1);}
 static int m_frames;
 static void mcu_frame(const unsigned char*f,int n){unsigned char cmd=f[3];const unsigned char*d=f+4;int dl=f[2]-1;mcu_log("rx",f,n);dwi("frames",++m_frames);
  if(cmd==0x00&&dl>=1)m_acc=d[0]==1;

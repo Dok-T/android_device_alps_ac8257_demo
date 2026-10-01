@@ -260,7 +260,7 @@ def main():
         log('fenetres : dessinees par TWRP (source patche)')
     else:
         if pop: ents.remove(pop)
-        log('fenetres : repli dans la ligne d\'etat (binaire sans patch pages.cpp)')
+        log('fenetres : bandeau du theme sur la barre de navigation (binaire sans patch pages.cpp)')
 
     ui = find(ents, b'twres/ui.xml')
     if not ok:
@@ -274,7 +274,8 @@ def main():
     # theme : entrees Advanced (sortie console), tableau de bord, zone droite de la barre d'etat
     # (%property.ujc201.*% : proprietes posees par touchfix, sans patch du binaire)
     la = find(ents, b'twres/landscape.xml')
-    l2, u2, msg = ujc201_theme.apply(bytes(la[2]).decode(), bytes(ui[2]).decode())
+    l2, u2, msg = ujc201_theme.apply(bytes(la[2]).decode(), bytes(ui[2]).decode(),
+                                     banner_on=b'UJC201-popup' not in rec)
     la[2] = bytearray(l2.encode()); ui[2] = bytearray(u2.encode())
     log('theme :', ', '.join(msg))
     # marqueur pour touchfix : zone droite presente -> pas d'etat vehicule a la suite de la ligne CPU / Vin
@@ -283,6 +284,11 @@ def main():
         if not car: put(ents, b'system/etc/ujc201_carstatus', b'1\n')
     elif car:
         ents.remove(car)
+    ban = find(ents, b'system/etc/ujc201_banner')     # touchfix : pas de titre de fenetre dans la ligne CPU
+    if 'UJC201 banner begin' in u2:
+        if not ban: put(ents, b'system/etc/ujc201_banner', b'1\n')
+    elif ban:
+        ents.remove(ban)
 
     pd = find(ents, b'prop.default')
     if pd and b'persist.twrp.rotation' not in pd[2]:

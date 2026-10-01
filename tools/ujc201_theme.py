@@ -145,12 +145,37 @@ CAR_ITEM = '''
 			</text>
 '''
 
+BANNER_ANCHOR = '''			<action>
+				<touch key="power"/>
+				<action function="togglebacklight"/>
+'''
+BB, BE = '<!-- UJC201 banner begin -->', '<!-- UJC201 banner end -->'
+
+def banner():
+    """bandeau sur la barre de navigation (fin du template "page" = dessine au-dessus du contenu des pages) :
+    propriete ujc201.pop_k = W (avertissement) / K (touche volant) / I (invite), pop_t titre, pop_x detail"""
+    s = '\t\t\t' + BB + '\n'
+    for k, col in (('W', AMBER), ('K', ACC), ('I', '#2E7D32')):
+        s += fill(0, 1104, 1920, 96, col, cond('property.ujc201.pop_k', k))
+    for c, op in (('#1A1A1A', None), ('#FFFFFF', '!=')):
+        k = cond('property.ujc201.pop_k', 'W', op)
+        s += ('\t\t\t<text color="%s">%s<font resource="font_m"/><placement x="48" y="1133"/>'
+              '<text>%%property.ujc201.pop_t%%</text></text>\n' % (c, k))
+        s += ('\t\t\t<text color="%s">%s<font resource="font_s"/><placement x="1872" y="1136" placement="1"/>'
+              '<text>%%property.ujc201.pop_x%%</text></text>\n' % (c, k))
+    return s + '\t\t\t' + BE + '\n'
+
 FONT_ANCHOR = '<font name="font_l" filename="RobotoCondensed-Regular.ttf" size="42"/>'
 FONT_XL = '\n\t\t<font name="ujc_xl" filename="RobotoCondensed-Regular.ttf" size="88"/>'
 
-def apply(landscape, ui, dash=True):
-    """retourne (landscape, ui, journal) modifies"""
+def apply(landscape, ui, dash=True, banner_on=False):
+    """retourne (landscape, ui, journal) modifies ; banner_on = fenetres par bandeau du theme
+    (binaire sans le patch gui/pages.cpp qui dessine les fenetres lui-meme)"""
     out = []
+    ui = re.sub(r'[ \t]*' + re.escape(BB) + r'.*?' + re.escape(BE) + r'\n', '', ui, flags=re.S)
+    if banner_on and BANNER_ANCHOR in ui:
+        ui = ui.replace(BANNER_ANCHOR, banner() + BANNER_ANCHOR, 1)
+        out.append('fenetres : bandeau du theme')
     # barre d'etat : zone droite (ACC / frein / feux) ; remplace l'ancienne variable %tw_ujc201_car%
     ui = re.sub(r'\n\t\t\t<text color="%text_color%">\n\t\t\t\t<font resource="font_[ms]"/>\n\t\t\t\t<placement x="%indent_right%" '
                 r'y="%row1_header_y%" placement="1"/>\n\t\t\t\t<text>%(tw_ujc201_car|property\.ujc201\.car)%</text>\n\t\t\t</text>\n', '', ui)

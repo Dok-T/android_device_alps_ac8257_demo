@@ -132,7 +132,7 @@ en manuel/semi-auto, allumees seulement feux allumes).
 - feux allumes : 8 s a l'allumage ; permanente si feux allumes **et** contact (ACC) coupe ;
 - touche au volant : nom + action, 1,5 s apres le relachement ;
 - invite de `wheelkeys learn`.
-Binaire TWRP sans ce patch : le titre de la fenetre s'affiche entre crochets en tete de la ligne CPU / Vin.
+Binaire TWRP sans ce patch : bandeau du theme sur la barre de navigation (proprietes `ujc201.pop_k/pop_t/pop_x`, une fenetre a la fois : invite > touche > avertissement).
 
 **Horloge** : trames `09` (date `[0, aa/100, aa%100, mois, jour]`, heure `[1, h, m, s]`, heure locale) ->
 `/tmp/mcu_time`. TWRP patche convertit avec `mktime()` dans son fuseau (Settings > Time zone) et regle l'horloge
