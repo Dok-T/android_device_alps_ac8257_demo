@@ -7,9 +7,10 @@
  *  - luminosite : TWRP ecrit 0..255 dans /tmp/twbl, pilote Jancar inverse (0 = max, 179 = min).
  *  - barre d'etat : /tmp/twcpu (temperature CPU + tension d'entree, 2 sondes ADC) ;
  *    MCU (ttyS1) : /tmp/twcar (ACC, frein a main, feux, version MCU), /tmp/mcu_version.
+ *  - MCU : synchro de l'horloge, touches au volant (uinput "ujc201-wheel"), fenetres /tmp/twpopup.
  * Usage: touchfix [rawx rawy swap flipu flipv outw outh]   (defaut : 1024 600 0 1 0 720 1280)
  * Autonome (pas de libc) : syscalls aarch64 directs. */
-typedef unsigned long u64; typedef long s64; typedef unsigned short u16; typedef int s32; typedef unsigned int u32;
+typedef unsigned long u64; typedef long s64; typedef unsigned short u16; typedef int s32; typedef unsigned int u32; typedef short s16;
 static s64 sys(s64 n,s64 a,s64 b,s64 c,s64 d){register s64 x8 asm("x8")=n,x0 asm("x0")=a,x1 asm("x1")=b,x2 asm("x2")=c,x3 asm("x3")=d;
  asm volatile("svc 0":"+r"(x0):"r"(x8),"r"(x1),"r"(x2),"r"(x3):"memory");return x0;}
 #define SYS_openat 56
@@ -65,7 +66,7 @@ static char*pnum(char*o,int v){char t[12];int k=0;if(v<0){*o++='-';v=-v;}do{t[k+
 static char*pstr(char*o,const char*s){while(*s)*o++=*s++;return o;}
 static char*pvolt(char*o,int mv){ if(mv<0)return pstr(o,"--"); o=pnum(o,mv/1000);*o++='.';int c=(mv%1000)/10;*o++='0'+c/10;*o++='0'+c%10;*o++='V';return o;}
 static void status(void){
- char s[96],*o=s;int t=rdint("/sys/class/thermal/thermal_zone1/temp");
+ char s[200],*o=s;int t=rdint("/sys/class/thermal/thermal_zone1/temp");
  /* sans le patch "texte" du binaire recovery (marqueur absent), TWRP attend un nombre : on ecrit la temperature brute */
  {int m=op("/system/etc/ujc201_statustext",O_RDONLY);if(m<0){o=pnum(o,t);*o++='\n';
    int fd=op("/tmp/twcpu",O_WRONLY|0100|01000);if(fd>=0){sys(SYS_write,fd,(s64)s,o-s,0);sys(SYS_close,fd,0,0,0);}return;} sys(SYS_close,m,0,0,0);}int a=soc_ch4();int v=rdint("/sys/bus/iio/devices/iio:device0/in_voltage2_VCDT_input");
@@ -77,44 +78,148 @@ static void status(void){
   else{char c[48];int fd=op("/tmp/twcar_s",O_RDONLY);if(fd>=0){s64 n=sys(SYS_read,fd,(s64)c,47,0);sys(SYS_close,fd,0,0,0);
    if(n>0){c[n]=0;while(n>0&&c[n-1]=='\n')c[--n]=0;o=pstr(o,"   ");o=pstr(o,c);}}}}
  *o++='\n';
+ /* binaire TWRP sans fenetres (marqueur /system/etc/ujc201_popup absent) : titre de la 1re fenetre en tete de ligne */
+ {int m=op("/system/etc/ujc201_popup",O_RDONLY);if(m>=0)sys(SYS_close,m,0,0,0);
+  else{char p[96];int fd=op("/tmp/twpopup",O_RDONLY);if(fd>=0){s64 n=sys(SYS_read,fd,(s64)p,95,0);sys(SYS_close,fd,0,0,0);
+   if(n>2&&p[1]=='\t'){char t[200],*q=t;q=pstr(q,"[");for(int i=2;i<n&&p[i]!='\t'&&p[i]!='\n';i++)*q++=p[i];q=pstr(q,"]  ");
+    for(char*r=s;r<o;)*q++=*r++;int l=(int)(q-t);if(l>190)l=190;for(int i=0;i<l;i++)s[i]=t[i];o=s+l;}}}}
  int fd=op("/tmp/twcpu",O_WRONLY|0100|01000);if(fd>=0){sys(SYS_write,fd,(s64)s,o-s,0);sys(SYS_close,fd,0,0,0);}
 }
 
-/* ---- MCU Jancar (protocole JAC_V1, /dev/ttyS1 115200) : ACC, frein a main, feux, version ----
+/* ---- MCU Jancar (protocole JAC_V1, /dev/ttyS1 115200) ----
  * trame : EE FA <len=donnees+1> <cmd> <donnees> <somme de tous les octets precedents>
  * envoi : 0x1F 01 (PC_READY, comme Android au demarrage ; pas de battement de coeur sur AC8257), 0xF0 00 00 (etat ACC)
- * recu  : 0x00 ACC, 0x04 frein a main, 0x0B feux, 0x1F etat groupe (b6 frein, b4 feux), 0x0A version (texte) */
+ * recu  : 0x00 ACC, 0x04 frein a main, 0x0B feux (ILL), 0x1F etat groupe (b6 frein, b4 feux), 0x0A version (texte),
+ *         0x09 date [0,aa/100,aa%100,mois,jour] / heure [1,h,m,s] (heure LOCALE), 0x20 touche [canal,v1,v2,v3,v4]
+ *         (canal 1 telecommande IR, 2 molette, 3/4 touches AD, 5/6 volant ; relache = 0xFF).
+ * sorties : /tmp/twcar (barre d'etat, a droite), /tmp/twcar_s (compact), /tmp/mcu_version, /tmp/mcu_time,
+ *           /tmp/mcu_key ("seq canal v1 v2 v3 v4", pour wheelkeys), /tmp/twpopup (fenetres dessinees par TWRP),
+ *           peripherique uinput "ujc201-wheel" (touches au volant -> touches TWRP, table ujc201_keys.conf) */
 #define TCGETS 0x5401
 #define TCSETS 0x5402
+#define SYS_newfstatat 79
+#define SYS_clock_gettime 113
+#define SYS_gettimeofday 169
+#define SYS_settimeofday 170
 struct ktermios{u32 c_iflag,c_oflag,c_cflag,c_lflag;unsigned char c_line,c_cc[19];};
 static int m_acc=-1,m_hb=-1,m_ill=-1;static char m_ver[40];
+static s64 now_ms(void){s64 ts[2];sys(SYS_clock_gettime,1/*MONOTONIC*/,(s64)ts,0,0);return ts[0]*1000+ts[1]/1000000;}
+static int exists(const char*p){int f=op(p,O_RDONLY);if(f<0)return 0;sys(SYS_close,f,0,0,0);return 1;}
 static void mcu_log(const char*tag,const unsigned char*f,int n);
 static void mcu_send(int fd,unsigned char cmd,const unsigned char*d,int n){unsigned char f[32];int k=0,sum=0;
  f[k++]=0xEE;f[k++]=0xFA;f[k++]=(unsigned char)(n+1);f[k++]=cmd;for(int i=0;i<n;i++)f[k++]=d[i];
  for(int i=0;i<k;i++)sum+=f[i];f[k++]=(unsigned char)sum;sys(SYS_write,fd,(s64)f,k,0);mcu_log("tx",f,k);}
 static void wrtxt(const char*p,const char*s,int n){int fd=op(p,O_WRONLY|0100|01000);if(fd>=0){sys(SYS_write,fd,(s64)s,n,0);sys(SYS_close,fd,0,0,0);}}
 static char*onoff(char*o,int v){return pstr(o,v<0?"--":v?"ON":"OFF");}
-static void mcu_publish(void){char s[96],*o=s;
+static char*p2(char*o,int v){*o++='0'+(v/10)%10;*o++='0'+v%10;return o;}
+static char*phex(char*o,int v){const char*h="0123456789ABCDEF";*o++=h[(v>>4)&15];*o++=h[v&15];return o;}
+static void mcu_publish(void){char s[128],*o=s;
  o=pstr(o,"ACC ");o=onoff(o,m_acc);o=pstr(o,"   HB ");o=onoff(o,m_hb);o=pstr(o,"   LIGHTS ");o=onoff(o,m_ill);
- o=pstr(o,"   MCU ");{const char*v=m_ver;int i=0;while(v[i]&&v[i]!='-')i++;if(v[i]=='-'){v+=i+1;i=0;while(v[i]&&v[i]!='_'&&i<12){*o++=v[i];i++;}}
-  else if(*v){for(i=0;v[i]&&i<16;i++)*o++=v[i];}else o=pstr(o,"--");}
+ o=pstr(o,"   MCU ");o=pstr(o,m_ver[0]?m_ver:"--");   /* version complete, ex. JCST_AC8257_8T7-2024.08.09_12:59 */
  *o++='\n';wrtxt("/tmp/twcar",s,o-s);
  o=s;o=pstr(o,"ACC:");o=onoff(o,m_acc);o=pstr(o," HB:");o=onoff(o,m_hb);o=pstr(o," ILL:");o=onoff(o,m_ill);*o++='\n';wrtxt("/tmp/twcar_s",s,o-s);}
 static int m_nlog;
-static void mcu_log(const char*tag,const unsigned char*f,int n){if(m_nlog>=300)return;m_nlog++;
+static void mcu_log(const char*tag,const unsigned char*f,int n){if(m_nlog>=1500)return;m_nlog++;
  char s[600],*o=s;const char*hx="0123456789abcdef";o=pstr(o,tag);for(int i=0;i<n&&i<180;i++){*o++=' ';*o++=hx[f[i]>>4];*o++=hx[f[i]&15];}*o++='\n';
  int fd=op("/tmp/mcu.log",O_WRONLY|0100|02000);if(fd>=0){sys(SYS_write,fd,(s64)s,o-s,0);sys(SYS_close,fd,0,0,0);}}
+
+/* -- horloge : trame 0x09 (heure locale du MCU) --
+ * TWRP patche (marqueur /system/etc/ujc201_popup) : il lit /tmp/mcu_time et regle l'horloge avec mktime() dans
+ * son fuseau (tw_time_zone). Sinon (binaire non patche) : on corrige ici la derive en gardant le decalage
+ * horaire deja present (ecart MCU - systeme arrondi au 1/4 d'heure) ; horloge systeme invalide (< 2024) -> heure MCU. */
+static int c_Y,c_M,c_D,c_ok;
+static s64 civil_days(int y,int m,int d){y-=m<=2;s64 era=(y>=0?y:y-399)/400;s64 yoe=y-era*400;s64 doy=(153*(m+(m>2?-3:9))+2)/5+d-1;
+ s64 doe=yoe*365+yoe/4-yoe/100+doy;return era*146097+doe-719468;}
+static void mcu_clock(int h,int mi,int se){
+ if(!c_ok||c_Y<2024||c_Y>2099||c_M<1||c_M>12||c_D<1||c_D>31||h>23||mi>59||se>59)return;
+ char s[48],*o=s;o=pnum(o,c_Y);*o++='-';o=p2(o,c_M);*o++='-';o=p2(o,c_D);*o++=' ';o=p2(o,h);*o++=':';o=p2(o,mi);*o++=':';o=p2(o,se);
+ *o++=' ';o=pnum(o,(int)now_ms());*o++='\n';wrtxt("/tmp/mcu_time",s,o-s);
+ if(exists("/system/etc/ujc201_popup"))return;                 /* TWRP s'en charge (fuseau exact) */
+ s64 loc=civil_days(c_Y,c_M,c_D)*86400+h*3600+mi*60+se;        /* heure locale comptee comme UTC */
+ s64 tv[2];sys(SYS_gettimeofday,(s64)tv,0,0,0);s64 d=loc-tv[0],nt=0;
+ if(tv[0]<1704067200)nt=loc;                                   /* horloge systeme invalide */
+ else{s64 off=(d>=0?d+450:d-450)/900*900;if(off>14*3600||off< -14*3600)return;s64 dr=d-off;if(dr>=3||dr<=-3)nt=tv[0]+dr;}
+ if(nt){s64 t2[2]={nt,0};s64 r=sys(SYS_settimeofday,(s64)t2,0,0,0);logs(r==0?"touchfix: horloge corrigee (MCU)\n":"touchfix: settimeofday refuse\n");}}
+
+/* -- touches au volant : table <canal> <octet 1..4> <min> <max> <action> [nom] -- */
+#define NMAP 32
+struct kmap{unsigned char ch,idx,lo,hi;signed char act;char name[14];};
+static struct kmap km[NMAP];static int nkm;
+static const struct{const char*n;s16 code;const char*label;}acts[]={
+ {"volup",115,"Volume +"},{"voldown",114,"Volume -"},{"enter",28,"Enter"},{"back",158,"Back"},{"home",172,"Home"},
+ {"power",116,"Screen / lock"},{"up",103,"Up"},{"down",108,"Down"},{"left",105,"Left"},{"right",106,"Right"},
+ {"bl+",-1,"Brightness +"},{"bl-",-2,"Brightness -"},{"none",0,"popup only"}};
+#define NACT ((int)(sizeof acts/sizeof acts[0]))
+static const char*kcfg[3]={"/data/media/0/TWRP/ujc201_keys.conf","/tmp/ujc201_keys.conf","/system/etc/ujc201_keys.conf"};
+static s64 kcfg_sig=-1;
+static int tok(char**p,char*out,int max){char*s=*p;while(*s==' '||*s=='\t')s++;int n=0;while(*s&&*s!=' '&&*s!='\t'&&*s!='\n'&&*s!='\r'){if(n<max-1)out[n++]=*s;s++;}out[n]=0;*p=s;return n;}
+static void keys_load(void){
+ s64 st[16];int w=-1;for(int i=0;i<3&&w<0;i++)if(sys(SYS_newfstatat,AT_FDCWD,(s64)kcfg[i],(s64)st,0)==0)w=i;
+ s64 sig=w<0?0:(w+1)+st[6]*7+st[11]*131+st[12];if(sig==kcfg_sig)return;kcfg_sig=sig;nkm=0;if(w<0)return;
+ static char b[4096];int fd=op(kcfg[w],O_RDONLY);if(fd<0)return;s64 n=sys(SYS_read,fd,(s64)b,4095,0);sys(SYS_close,fd,0,0,0);if(n<=0)return;b[n]=0;
+ for(char*l=b;*l&&nkm<NMAP;){char*e=l;while(*e&&*e!='\n')e++;char c=*e;*e=0;
+  char t[5][16];char*q=l;int k=0;while(k<5&&tok(&q,t[k],16))k++;
+  if(k==5&&t[0][0]!='#'){struct kmap*m=&km[nkm];m->ch=(unsigned char)atoi_(t[0]);m->idx=(unsigned char)atoi_(t[1]);m->lo=(unsigned char)atoi_(t[2]);m->hi=(unsigned char)atoi_(t[3]);
+   m->act=-1;for(int a=0;a<NACT;a++)if(streq(t[4],acts[a].n))m->act=(signed char)a;
+   char nm[16];if(!tok(&q,nm,14)){int i=0;for(;t[4][i]&&i<13;i++)nm[i]=t[4][i];nm[i]=0;}for(int i=0;i<14;i++)m->name[i]=nm[i];
+   if(m->act>=0&&m->idx>=1&&m->idx<=4)nkm++;}
+  *e=c;l=*e?e+1:e;}
+ char s[64],*o=s;o=pstr(o,"touchfix: touches volant : ");o=pnum(o,nkm);o=pstr(o," (");o=pstr(o,kcfg[w]);o=pstr(o,")\n");logs(s);}
+static int kfd=-1,k_held,k_map=-1,k_seq;static s64 k_last,k_hide;static char k_popup[160];
+static void key_emit(int code,int v){if(kfd<0||code<=0)return;emit(kfd,EV_KEY,(u16)code,v);emit(kfd,EV_SYN,SYN_REPORT,0);}
+static void bl_step(int dir){int v=rdint("/tmp/twbl");if(v<0)v=180;v+=dir*32;if(v<16)v=16;if(v>255)v=255;char t[8];char*o=pnum(t,v);*o++='\n';wrtxt("/tmp/twbl",t,o-t);}
+static void wheel_dev(void){
+ for(int i=0;i<30&&kfd<0;i++){kfd=op("/dev/uinput",O_RDWR);if(kfd<0)kfd=op("/dev/input/uinput",O_RDWR);if(kfd<0)msleep(100);}
+ if(kfd<0)return;
+ sys(SYS_ioctl,kfd,UI_SET_EVBIT,EV_KEY,0);sys(SYS_ioctl,kfd,UI_SET_EVBIT,EV_SYN,0);
+ for(int a=0;a<NACT;a++)if(acts[a].code>0)sys(SYS_ioctl,kfd,UI_SET_KEYBIT,acts[a].code,0);
+ static struct uidev w;const char*nm="ujc201-wheel";for(int i=0;nm[i];i++)w.name[i]=nm[i];
+ w.bustype=0x19;w.vendor=0x2be1;w.product=0x0912;w.version=1;sys(SYS_write,kfd,(s64)&w,sizeof w,0);
+ if(sys(SYS_ioctl,kfd,UI_DEV_CREATE,0,0)<0){sys(SYS_close,kfd,0,0,0);kfd=-1;logs("touchfix: uinput volant echec\n");}}
+static void key_release(void){if(k_held&&k_map>=0)key_emit(acts[km[k_map].act].code,0);if(k_held)k_hide=now_ms()+1500;k_held=0;k_map=-1;}
+static void mcu_key(const unsigned char*d,int dl){
+ if(dl<2)return;int ch=d[0];unsigned char v[5]={0,d[1],dl>2?d[2]:255,dl>3?d[3]:255,dl>4?d[4]:255};
+ int rel=ch==1?v[2]==255:(ch>=5?(v[2]==255&&v[3]==255&&v[4]==255):v[1]==255);
+ if(rel){key_release();return;}
+ k_last=now_ms();if(k_held)return;                      /* repetition pendant l'appui */
+ k_held=1;k_hide=0;k_seq++;
+ {char s[48],*o=s;o=pnum(o,k_seq);for(int i=0;i<5;i++){*o++=' ';o=pnum(o,i?v[i]:ch);}*o++='\n';wrtxt("/tmp/mcu_key",s,o-s);}
+ keys_load();k_map=-1;for(int i=0;i<nkm;i++)if(km[i].ch==ch&&v[km[i].idx]>=km[i].lo&&v[km[i].idx]<=km[i].hi){k_map=i;break;}
+ char*o=k_popup;o=pstr(o,"K\t");
+ if(k_map>=0){const struct kmap*m=&km[k_map];int a=m->act;o=pstr(o,"Steering wheel: ");o=pstr(o,m->name);o=pstr(o,"\tAction: ");o=pstr(o,acts[a].label);
+  if(acts[a].code>0)key_emit(acts[a].code,1);else if(acts[a].code<0)bl_step(acts[a].code==-1?1:-1);}
+ else{o=pstr(o,"Steering wheel: unknown key\tch ");o=pnum(o,ch);o=pstr(o," \xC2\xB7 ");for(int i=1;i<5;i++){o=phex(o,v[i]);*o++=' ';}
+  o=pstr(o,"\xC2\xB7 Advanced > Steering wheel keys");}
+ *o++='\n';*o=0;}
+/* -- fenetres : /tmp/twpopup, une ligne par fenetre "<W|K|I>\t<titre>\t<texte>" (dessinees par TWRP patche) -- */
+static s64 w_until;static int w_prev=-1;static char pop_last[512];
+static void popup_update(void){
+ s64 t=now_ms();char s[512],*o=s;
+ if(k_held&&t-k_last>4000)key_release();               /* trame de relache perdue */
+ if(m_ill==1&&w_prev!=1)w_until=t+8000;w_prev=m_ill;
+ if(m_ill==1&&(m_acc==0||t<w_until)){
+  if(m_acc==0)o=pstr(o,"W\tLights ON \xE2\x80\x94 ignition OFF\tBattery drain risk: switch the headlights off\n");
+  else o=pstr(o,"W\tLights ON\tHeadlights / ILL wire detected by the MCU\n");}
+ {static char b[200];int fd=op("/tmp/wheelkeys.prompt",O_RDONLY);       /* invite de wheelkeys learn */
+  if(fd>=0){s64 n=sys(SYS_read,fd,(s64)b,190,0);sys(SYS_close,fd,0,0,0);if(n>0){b[n]=0;while(n>0&&b[n-1]=='\n')b[--n]=0;o=pstr(o,"I\t");o=pstr(o,b);*o++='\n';}}}
+ if(k_held||t<k_hide)o=pstr(o,k_popup);
+ *o=0;if(streq(s,pop_last))return;for(int i=0;i<=o-s;i++)pop_last[i]=s[i];wrtxt("/tmp/twpopup",s,o-s);}
 static void mcu_frame(const unsigned char*f,int n){unsigned char cmd=f[3];const unsigned char*d=f+4;int dl=f[2]-1;mcu_log("rx",f,n);
  if(cmd==0x00&&dl>=1)m_acc=d[0]==1;
  else if(cmd==0x04&&dl>=1)m_hb=d[0]==1;
  else if(cmd==0x0B&&dl>=1)m_ill=d[0]==1;
  else if(cmd==0x1F&&dl>=1){m_hb=(d[0]>>6)&1;m_ill=(d[0]>>4)&1;}
  else if(cmd==0x0A&&dl>0){int k=dl<39?dl:39;for(int i=0;i<k;i++)m_ver[i]=(d[i]>=32&&d[i]<127)?d[i]:'?';m_ver[k]=0;
+  while(k>0&&m_ver[k-1]==' ')m_ver[--k]=0;
   char t[48];for(int i=0;i<=k;i++)t[i]=m_ver[i];t[k]='\n';wrtxt("/tmp/mcu_version",t,k+1);}
+ else if(cmd==0x09&&dl>=4){if(d[0]==0&&dl>=5){c_Y=d[1]*100+d[2];c_M=d[3];c_D=d[4];c_ok=1;}else if(d[0]==1)mcu_clock(d[1],d[2],d[3]);return;}
+ else if(cmd==0x20){mcu_key(d,dl);popup_update();return;}
  else return;
- (void)n;mcu_publish();}
+ (void)n;mcu_publish();popup_update();}
 static void mcu_loop(void){
- mcu_publish();
+ wrtxt("/tmp/twpopup","",0);
+ wheel_dev();                                            /* avant le demarrage de TWRP (scan /dev/input) */
+ mcu_publish();keys_load();
  int fd=-1;for(int t=0;t<100&&fd<0;t++){fd=op("/dev/ttyS1",O_RDWR|0400/*NOCTTY*/|04000/*NONBLOCK*/);if(fd<0)msleep(100);}
  if(fd<0){logs("touchfix: /dev/ttyS1 introuvable\n");sys(SYS_exit,0,0,0,0);}
  struct ktermios tio;if(sys(SYS_ioctl,fd,TCGETS,(s64)&tio,0)==0){
@@ -127,6 +232,7 @@ static void mcu_loop(void){
  for(;;){
   if(!m_ver[0]&&tries<3&&(tick%40)==0){mcu_send(fd,0x1F,ready,1);msleep(50);mcu_send(fd,0xF0,qacc,2);tries++;}
   if(m_acc<0&&tick>0&&(tick%100)==0)mcu_send(fd,0xF0,qacc,2);
+  if((tick%20)==0)keys_load();
   s64 n=sys(SYS_read,fd,(s64)(buf+bl),sizeof buf-bl,0);
   if(n>0){bl+=(int)n;
    for(;;){int i=0;while(i+1<bl&&!(buf[i]==0xEE&&buf[i+1]==0xFA))i++;
@@ -136,15 +242,18 @@ static void mcu_loop(void){
     if((unsigned char)sum==buf[tot-1])mcu_frame(buf,tot);else mcu_log("bad",buf,tot);
     for(int j=tot;j<bl;j++)buf[j-tot]=buf[j];bl-=tot;}
    if(bl>=(int)sizeof buf)bl=0;}
-  else msleep(100);
+  else msleep(50);
+  popup_update();
   tick++;}
 }
 
 /* luminosite : TWRP ecrit 0..255 dans /tmp/twbl ; le pilote Jancar est inverse (0 = max, 179 = min) */
 #define SYS_clone 220
 static void bl_loop(void){
- char buf[16];int last=-1,tick=0;
- for(;;){ if((tick++%33)==0)status();int fd=op("/tmp/twbl",O_RDONLY);
+ char buf[16];int last=-1,tick=0;s64 psig=0;
+ for(;;){ s64 sig=0;{char p[96];int fd=op("/tmp/twpopup",O_RDONLY);if(fd>=0){s64 n=sys(SYS_read,fd,(s64)p,95,0);sys(SYS_close,fd,0,0,0);
+     for(int i=0;i<n;i++)sig=sig*31+p[i];sig+=n;}}
+  if((tick++%33)==0||sig!=psig){psig=sig;status();}int fd=op("/tmp/twbl",O_RDONLY);
   if(fd>=0){s64 n=sys(SYS_read,fd,(s64)buf,15,0);sys(SYS_close,fd,0,0,0);
    if(n>0){buf[n]=0;int v=atoi_(buf);if(v<0)v=0;if(v>255)v=255;
     if(v!=last){last=v;int r=179-v*179/255;char o[8];int k=0;

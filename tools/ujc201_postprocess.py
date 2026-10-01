@@ -225,6 +225,17 @@ ADV_ITEMS = '''				<listitem name="Power info (Vin / CPU)">
 				</listitem>
 '''
 
+WHEEL_ANCHOR = '''					<action function="cmd">/system/bin/usbmode device</action>
+				</listitem>
+'''
+WHEEL_ITEMS = '''				<listitem name="Steering wheel keys: learn">
+					<action function="cmd">/system/bin/wheelkeys learn</action>
+				</listitem>
+				<listitem name="Steering wheel keys: show / test">
+					<action function="cmd">/system/bin/wheelkeys show</action>
+				</listitem>
+'''
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('inp'); ap.add_argument('out')
@@ -274,6 +285,15 @@ def main():
         if car: ents.remove(car)
         log('barre vehicule : mode compact (a la suite de la ligne CPU / Vin)')
 
+    # fenetres + horloge MCU (gui/pages.cpp patche) : sinon touchfix met le titre en tete de ligne et regle l'horloge
+    pop = find(ents, b'system/etc/ujc201_popup')
+    if b'UJC201-popup' in rec:
+        if not pop: put(ents, b'system/etc/ujc201_popup', b'1\n')
+        log('fenetres : dessinees par TWRP (source patche)')
+    else:
+        if pop: ents.remove(pop)
+        log('fenetres : repli dans la ligne d\'etat (binaire sans patch pages.cpp)')
+
     ui = find(ents, b'twres/ui.xml')
     if not ok:
         m = find(ents, b'system/etc/ujc201_statustext')
@@ -286,6 +306,8 @@ def main():
     la = find(ents, b'twres/landscape.xml'); s = bytes(la[2]).decode()
     if 'Power info' not in s and ADV_ANCHOR in s:
         s = s.replace(ADV_ANCHOR, ADV_ANCHOR + ADV_ITEMS); la[2] = bytearray(s.encode()); log('theme : entrees Advanced ajoutees')
+    if 'Steering wheel keys' not in s and WHEEL_ANCHOR in s:
+        s = s.replace(WHEEL_ANCHOR, WHEEL_ANCHOR + WHEEL_ITEMS); la[2] = bytearray(s.encode()); log('theme : entrees volant ajoutees')
 
     pd = find(ents, b'prop.default')
     if pd and b'persist.twrp.rotation' not in pd[2]:

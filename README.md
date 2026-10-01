@@ -13,7 +13,7 @@ Arbre TWRP (branche **twrp-12.1**) pour les autoradios Android « UJC201 » (SIX
 | Cle USB | OK sur le port hote (xhci) ; port OTG basculable (Advanced > USB: Host mode) |
 | /data | OK (non chiffre sur ce firmware) |
 | Barre d'etat | temperature CPU (mtktscpu) + tension d'entree (2 sondes ADC, a valider en voiture) |
-| MCU Jancar (ttyS1) | ACC, frein a main, feux, version MCU (barre d'etat a droite ; Advanced > Power info) |
+| MCU Jancar (ttyS1) | ACC, frein a main, feux, version MCU complete (barre d'etat a droite), fenetre « feux allumes », touches au volant, horloge synchronisee sur le MCU |
 
 ## Installer
 ```
@@ -125,11 +125,31 @@ Etat ecrit dans `/tmp/twcar` (affiche par `%tw_ujc201_car%`), `/tmp/twcar_s` et 
 LED des touches : commande `0F 04 <panneau> R G B <mode>` (R,G,B 0..99 ; mode 1 auto, 2 manuel, 3 semi-auto ;
 en manuel/semi-auto, allumees seulement feux allumes).
 
+**Fenetres** (`gui/pages.cpp` patche, dessinees par-dessus toutes les pages, au-dessus de la barre de navigation) :
+`touchfix` ecrit `/tmp/twpopup`, une ligne par fenetre `<W|K|I>\t<titre>\t<texte>`.
+- feux allumes : 8 s a l'allumage ; permanente si feux allumes **et** contact (ACC) coupe ;
+- touche au volant : nom + action, 1,5 s apres le relachement ;
+- invite de `wheelkeys learn`.
+Binaire TWRP sans ce patch : le titre de la fenetre s'affiche entre crochets en tete de la ligne CPU / Vin.
+
+**Horloge** : trames `09` (date `[0, aa/100, aa%100, mois, jour]`, heure `[1, h, m, s]`, heure locale) ->
+`/tmp/mcu_time`. TWRP patche convertit avec `mktime()` dans son fuseau (Settings > Time zone) et regle l'horloge
+si l'ecart depasse 2 s (refait si le fuseau change). Sans le patch, `touchfix` corrige seulement la derive en gardant
+le decalage horaire existant (arrondi au 1/4 d'heure).
+
+**Touches au volant** : trame `20` = `canal v1 v2 v3 v4` (1 telecommande IR, 2 molette, 3/4 touches AD, 5/6 volant ;
+`FF` = relachement). `touchfix` les envoie sur le peripherique uinput `ujc201-wheel` selon la table
+`ujc201_keys.conf` (`/data/media/0/TWRP/`, sinon `/tmp/`, sinon `/system/etc/` vide) :
+`<canal> <octet 1..4> <min> <max> <action> [nom]`, actions `volup voldown enter back home power up down left right bl+ bl- none`.
+Apprentissage : Advanced > *Steering wheel keys: learn* (`wheelkeys learn`, VOL+ VOL- MUTE MODE BACK, 10 s par touche).
+TWRP n'a pas de navigation au clavier : `back` = page precedente, `home` = menu principal, `power` = verrouillage,
+`enter` = valider un champ texte, `bl+`/`bl-` = luminosite ; `volup`/`voldown` ne font rien dans TWRP seul.
+
 ## Fichiers
 - `prebuilt/kernel` : noyau stock 250718 (#25) + patch `want_initramfs`
 - `prebuilt/dtbo.img` : recovery_dtbo du recovery stock 250718
 - `prebuilt/avb/recovery_stock_vbmeta_250718.bin` : vbmeta (footer) du recovery stock
-- `recovery/root/` : rc, `touchfix`, `usbmode`, `powerinfo`
+- `recovery/root/` : rc, `touchfix`, `usbmode`, `powerinfo`, `wheelkeys`, `ujc201_keys.conf`
 - `tools/touchfix/` : source de `touchfix` (C autonome, sans libc) + `build.sh`
 - `tools/apply_twrp_patches.py` : patchs du source TWRP (applique par le workflow)
 - `tools/ujc201_postprocess.py` : post-traitement de l'image (signature AVB, patchs binaires de secours)
