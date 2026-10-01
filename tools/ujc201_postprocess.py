@@ -228,7 +228,10 @@ ADV_ITEMS = '''				<listitem name="Power info (Vin / CPU)">
 WHEEL_ANCHOR = '''					<action function="cmd">/system/bin/usbmode device</action>
 				</listitem>
 '''
-WHEEL_ITEMS = '''				<listitem name="Steering wheel keys: learn">
+WHEEL_ITEMS = '''				<listitem name="MCU info (firmware version)">
+					<action function="cmd">/system/bin/mcuinfo</action>
+				</listitem>
+				<listitem name="Steering wheel keys: learn">
 					<action function="cmd">/system/bin/wheelkeys learn</action>
 				</listitem>
 				<listitem name="Steering wheel keys: show / test">
@@ -306,7 +309,7 @@ def main():
     la = find(ents, b'twres/landscape.xml'); s = bytes(la[2]).decode()
     if 'Power info' not in s and ADV_ANCHOR in s:
         s = s.replace(ADV_ANCHOR, ADV_ANCHOR + ADV_ITEMS); la[2] = bytearray(s.encode()); log('theme : entrees Advanced ajoutees')
-    if 'Steering wheel keys' not in s and WHEEL_ANCHOR in s:
+    if 'MCU info (firmware' not in s and WHEEL_ANCHOR in s:
         s = s.replace(WHEEL_ANCHOR, WHEEL_ANCHOR + WHEEL_ITEMS); la[2] = bytearray(s.encode()); log('theme : entrees volant ajoutees')
 
     pd = find(ents, b'prop.default')

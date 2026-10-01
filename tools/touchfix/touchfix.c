@@ -92,7 +92,7 @@ static void status(void){
  * recu  : 0x00 ACC, 0x04 frein a main, 0x0B feux (ILL), 0x1F etat groupe (b6 frein, b4 feux), 0x0A version (texte),
  *         0x09 date [0,aa/100,aa%100,mois,jour] / heure [1,h,m,s] (heure LOCALE), 0x20 touche [canal,v1,v2,v3,v4]
  *         (canal 1 telecommande IR, 2 molette, 3/4 touches AD, 5/6 volant ; relache = 0xFF).
- * sorties : /tmp/twcar (barre d'etat, a droite), /tmp/twcar_s (compact), /tmp/mcu_version, /tmp/mcu_time,
+ * sorties : /tmp/twcar (barre d'etat, a droite : ACC, frein, feux ; version -> Advanced > MCU info), /tmp/twcar_s (compact), /tmp/mcu_version, /tmp/mcu_time,
  *           /tmp/mcu_key ("seq canal v1 v2 v3 v4", pour wheelkeys), /tmp/twpopup (fenetres dessinees par TWRP),
  *           peripherique uinput "ujc201-wheel" (touches au volant -> touches TWRP, table ujc201_keys.conf) */
 #define TCGETS 0x5401
@@ -115,7 +115,6 @@ static char*p2(char*o,int v){*o++='0'+(v/10)%10;*o++='0'+v%10;return o;}
 static char*phex(char*o,int v){const char*h="0123456789ABCDEF";*o++=h[(v>>4)&15];*o++=h[v&15];return o;}
 static void mcu_publish(void){char s[128],*o=s;
  o=pstr(o,"ACC ");o=onoff(o,m_acc);o=pstr(o,"   HB ");o=onoff(o,m_hb);o=pstr(o,"   LIGHTS ");o=onoff(o,m_ill);
- o=pstr(o,"   MCU ");o=pstr(o,m_ver[0]?m_ver:"--");   /* version complete, ex. JCST_AC8257_8T7-2024.08.09_12:59 */
  *o++='\n';wrtxt("/tmp/twcar",s,o-s);
  o=s;o=pstr(o,"ACC:");o=onoff(o,m_acc);o=pstr(o," HB:");o=onoff(o,m_hb);o=pstr(o," ILL:");o=onoff(o,m_ill);*o++='\n';wrtxt("/tmp/twcar_s",s,o-s);}
 static int m_nlog;

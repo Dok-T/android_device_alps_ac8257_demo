@@ -13,7 +13,7 @@ Arbre TWRP (branche **twrp-12.1**) pour les autoradios Android « UJC201 » (SIX
 | Cle USB | OK sur le port hote (xhci) ; port OTG basculable (Advanced > USB: Host mode) |
 | /data | OK (non chiffre sur ce firmware) |
 | Barre d'etat | temperature CPU (mtktscpu) + tension d'entree (2 sondes ADC, a valider en voiture) |
-| MCU Jancar (ttyS1) | ACC, frein a main, feux, version MCU complete (barre d'etat a droite), fenetre « feux allumes », touches au volant, horloge synchronisee sur le MCU |
+| MCU Jancar (ttyS1) | ACC, frein a main, feux (barre d'etat a droite), version MCU (Advanced > MCU info), fenetre « feux allumes », touches au volant, horloge synchronisee sur le MCU |
 
 ## Installer
 ```
@@ -149,7 +149,7 @@ TWRP n'a pas de navigation au clavier : `back` = page precedente, `home` = menu 
 - `prebuilt/kernel` : noyau stock 250718 (#25) + patch `want_initramfs`
 - `prebuilt/dtbo.img` : recovery_dtbo du recovery stock 250718
 - `prebuilt/avb/recovery_stock_vbmeta_250718.bin` : vbmeta (footer) du recovery stock
-- `recovery/root/` : rc, `touchfix`, `usbmode`, `powerinfo`, `wheelkeys`, `ujc201_keys.conf`
+- `recovery/root/` : rc, `touchfix`, `usbmode`, `powerinfo`, `mcuinfo`, `wheelkeys`, `ujc201_keys.conf`
 - `tools/touchfix/` : source de `touchfix` (C autonome, sans libc) + `build.sh`
 - `tools/apply_twrp_patches.py` : patchs du source TWRP (applique par le workflow)
 - `tools/ujc201_postprocess.py` : post-traitement de l'image (signature AVB, patchs binaires de secours)

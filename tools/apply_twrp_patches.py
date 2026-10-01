@@ -7,7 +7,7 @@ apply_twrp_patches.py - patchs source TWRP (bootable/recovery, branche android-1
   2. Theme landscape_hdpi/ui.xml : en-tete "%tw_cpu_temp%" au lieu de "CPU: %tw_cpu_temp% °C".
   3. Theme common/landscape.xml : entrees Advanced "Power info", "USB: Host mode", "USB: PC mode".
   4. data.cpp + theme : variable %tw_ujc201_car% (texte de /tmp/twcar, ecrit par touchfix : ACC, frein a main,
-     feux, version MCU) affichee a droite de la barre d'etat (place de la batterie, absente sur cette carte).
+     feux) affichee a droite de la barre d'etat (place de la batterie, absente sur cette carte).
   5. gui/pages.cpp : fenetres "snackbar" dessinees par-dessus toutes les pages (texte /tmp/twpopup ecrit par
      touchfix : feux allumes, touche au volant, invite de wheelkeys) + reglage de l'horloge sur l'heure du MCU
      (/tmp/mcu_time, heure locale -> mktime() dans le fuseau TWRP).
@@ -67,7 +67,7 @@ CAR_ANCHOR = '''				<text>{@battery_pct=Battery: %tw_battery%}</text>
 '''
 CAR_ITEM = '''
 			<text color="%text_color%">
-				<font resource="font_s"/>
+				<font resource="font_m"/>
 				<placement x="%indent_right%" y="%row1_header_y%" placement="1"/>
 				<text>%tw_ujc201_car%</text>
 			</text>
@@ -282,7 +282,10 @@ PAGES_UPDATE_NEW = """	int res = (mCurrentSet ? mCurrentSet->Update() : -1);
 WHEEL_ANCHOR = """					<action function="cmd">/system/bin/usbmode device</action>
 				</listitem>
 """
-WHEEL_ITEMS = """				<listitem name="Steering wheel keys: learn">
+WHEEL_ITEMS = """				<listitem name="MCU info (firmware version)">
+					<action function="cmd">/system/bin/mcuinfo</action>
+				</listitem>
+				<listitem name="Steering wheel keys: learn">
 					<action function="cmd">/system/bin/wheelkeys learn</action>
 				</listitem>
 				<listitem name="Steering wheel keys: show / test">
@@ -316,7 +319,7 @@ def main():
     else:
         print('ATTENTION : ancre batterie introuvable, barre vehicule non ajoutee (touchfix passe en mode compact)')
     patch(j('gui/theme/common/landscape.xml'), ADV_ANCHOR, ADV_ANCHOR + ADV_ITEMS, 'Power info (Vin / CPU)')
-    patch(j('gui/theme/common/landscape.xml'), WHEEL_ANCHOR, WHEEL_ANCHOR + WHEEL_ITEMS, 'Steering wheel keys')
+    patch(j('gui/theme/common/landscape.xml'), WHEEL_ANCHOR, WHEEL_ANCHOR + WHEEL_ITEMS, 'MCU info (firmware')
     # Render d'abord (le marqueur UJC201-popup est dans le bloc insere avant Render), puis Update
     patch(j('gui/pages.cpp'), PAGES_RENDER_OLD, PAGES_RENDER_NEW, 'UJC201-popup')
     patch(j('gui/pages.cpp'), PAGES_UPDATE_OLD, PAGES_UPDATE_NEW, 'UJC201 : fenetre apparue')
