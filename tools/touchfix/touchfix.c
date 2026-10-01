@@ -88,9 +88,10 @@ static void status(void){
 #define TCSETS 0x5402
 struct ktermios{u32 c_iflag,c_oflag,c_cflag,c_lflag;unsigned char c_line,c_cc[19];};
 static int m_acc=-1,m_hb=-1,m_ill=-1;static char m_ver[40];
+static void mcu_log(const char*tag,const unsigned char*f,int n);
 static void mcu_send(int fd,unsigned char cmd,const unsigned char*d,int n){unsigned char f[32];int k=0,sum=0;
  f[k++]=0xEE;f[k++]=0xFA;f[k++]=(unsigned char)(n+1);f[k++]=cmd;for(int i=0;i<n;i++)f[k++]=d[i];
- for(int i=0;i<k;i++)sum+=f[i];f[k++]=(unsigned char)sum;sys(SYS_write,fd,(s64)f,k,0);}
+ for(int i=0;i<k;i++)sum+=f[i];f[k++]=(unsigned char)sum;sys(SYS_write,fd,(s64)f,k,0);mcu_log("tx",f,k);}
 static void wrtxt(const char*p,const char*s,int n){int fd=op(p,O_WRONLY|0100|01000);if(fd>=0){sys(SYS_write,fd,(s64)s,n,0);sys(SYS_close,fd,0,0,0);}}
 static char*onoff(char*o,int v){return pstr(o,v<0?"--":v?"ON":"OFF");}
 static void mcu_publish(void){char s[96],*o=s;
@@ -99,7 +100,11 @@ static void mcu_publish(void){char s[96],*o=s;
   else if(*v){for(i=0;v[i]&&i<16;i++)*o++=v[i];}else o=pstr(o,"--");}
  *o++='\n';wrtxt("/tmp/twcar",s,o-s);
  o=s;o=pstr(o,"ACC:");o=onoff(o,m_acc);o=pstr(o," HB:");o=onoff(o,m_hb);o=pstr(o," ILL:");o=onoff(o,m_ill);*o++='\n';wrtxt("/tmp/twcar_s",s,o-s);}
-static void mcu_frame(const unsigned char*f,int n){unsigned char cmd=f[3];const unsigned char*d=f+4;int dl=f[2]-1;
+static int m_nlog;
+static void mcu_log(const char*tag,const unsigned char*f,int n){if(m_nlog>=300)return;m_nlog++;
+ char s[600],*o=s;const char*hx="0123456789abcdef";o=pstr(o,tag);for(int i=0;i<n&&i<180;i++){*o++=' ';*o++=hx[f[i]>>4];*o++=hx[f[i]&15];}*o++='\n';
+ int fd=op("/tmp/mcu.log",O_WRONLY|0100|02000);if(fd>=0){sys(SYS_write,fd,(s64)s,o-s,0);sys(SYS_close,fd,0,0,0);}}
+static void mcu_frame(const unsigned char*f,int n){unsigned char cmd=f[3];const unsigned char*d=f+4;int dl=f[2]-1;mcu_log("rx",f,n);
  if(cmd==0x00&&dl>=1)m_acc=d[0]==1;
  else if(cmd==0x04&&dl>=1)m_hb=d[0]==1;
  else if(cmd==0x0B&&dl>=1)m_ill=d[0]==1;
@@ -128,7 +133,7 @@ static void mcu_loop(void){
     if(i>0){for(int j=i;j<bl;j++)buf[j-i]=buf[j];bl-=i;}
     if(bl<5)break;int tot=buf[2]+4;if(tot<5||tot>255){for(int j=1;j<bl;j++)buf[j-1]=buf[j];bl--;continue;}
     if(bl<tot)break;int sum=0;for(int j=0;j<tot-1;j++)sum+=buf[j];
-    if((unsigned char)sum==buf[tot-1])mcu_frame(buf,tot);
+    if((unsigned char)sum==buf[tot-1])mcu_frame(buf,tot);else mcu_log("bad",buf,tot);
     for(int j=tot;j<bl;j++)buf[j-tot]=buf[j];bl-=tot;}
    if(bl>=(int)sizeof buf)bl=0;}
   else msleep(100);
