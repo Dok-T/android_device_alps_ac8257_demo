@@ -65,10 +65,30 @@ static int soc_ch4(void){ /* ligne "[ 4,2466, 902]-..." de AUXADC_read_channel *
 static char*pnum(char*o,int v){char t[12];int k=0;if(v<0){*o++='-';v=-v;}do{t[k++]='0'+v%10;v/=10;}while(v);while(k)*o++=t[--k];return o;}
 static char*pstr(char*o,const char*s){while(*s)*o++=*s++;return o;}
 static char*pvolt(char*o,int mv){ if(mv<0)return pstr(o,"--"); o=pnum(o,mv/1000);*o++='.';int c=(mv%1000)/10;*o++='0'+c/10;*o++='0'+c%10;*o++='V';return o;}
-/* tableau de bord TWRP : /tmp/ujc201/<nom> (variables %tw_ujc201_v_<nom>%) */
-static void dw(const char*n,const char*v,int l){char p[48],*o=p;o=pstr(o,"/tmp/ujc201/");o=pstr(o,n);*o=0;
- int fd=op(p,O_WRONLY|0100|01000);if(fd<0){sys(34/*mkdirat*/,AT_FDCWD,(s64)"/tmp/ujc201",0755,0);fd=op(p,O_WRONLY|0100|01000);}
- if(fd>=0){sys(SYS_write,fd,(s64)v,l,0);sys(SYS_close,fd,0,0,0);}}
+/* tableau de bord / barre d'etat TWRP : proprietes systeme "ujc201.<nom>", lues par le theme avec
+ * %property.ujc201.<nom>% (DataManager::GetValue gere "property." : aucun patch du binaire TWRP).
+ * Protocole init v2 : PROP_MSG_SETPROP2, <len>nom, <len>valeur sur /dev/socket/property_service. */
+#define SYS_socket 198
+#define SYS_connect 203
+static struct{char k[12];u32 h;int ok;}pc[24];
+static int setprop(const char*k,const char*v,int vl){
+ int fd=(int)sys(SYS_socket,1/*AF_UNIX*/,1/*SOCK_STREAM*/|02000000/*CLOEXEC*/,0,0);if(fd<0)return -1;
+ struct{u16 fam;char path[108];}sa;sa.fam=1;const char*sp="/dev/socket/property_service";int i=0;for(;sp[i];i++)sa.path[i]=sp[i];sa.path[i]=0;
+ if(sys(SYS_connect,fd,(s64)&sa,2+i+1,0)<0){sys(SYS_close,fd,0,0,0);return -1;}
+ unsigned char m[160];int n=0,kl=slen(k);u32 w[1];
+ w[0]=0x00020001;for(int j=0;j<4;j++)m[n++]=((unsigned char*)w)[j];
+ w[0]=(u32)kl;for(int j=0;j<4;j++)m[n++]=((unsigned char*)w)[j];for(int j=0;j<kl;j++)m[n++]=k[j];
+ w[0]=(u32)vl;for(int j=0;j<4;j++)m[n++]=((unsigned char*)w)[j];for(int j=0;j<vl;j++)m[n++]=v[j];
+ s32 r=-1;if(sys(SYS_write,fd,(s64)m,n,0)==n)sys(SYS_read,fd,(s64)&r,4,0);
+ sys(SYS_close,fd,0,0,0);return r;}
+static void dw(const char*nm,const char*v,int l){
+ if(l>91)l=91;while(l>0&&(v[l-1]=='\n'||v[l-1]==' '))l--;
+ u32 h=2166136261u;for(int i=0;i<l;i++)h=(h^(unsigned char)v[i])*16777619u;h^=(u32)l;
+ int e=-1;for(int i=0;i<24;i++){if(pc[i].k[0]&&streq(pc[i].k,nm)){e=i;break;}if(e<0&&!pc[i].k[0]){e=i;}}
+ if(e<0)e=0;if(!streq(pc[e].k,nm)){int i=0;for(;nm[i]&&i<11;i++)pc[e].k[i]=nm[i];pc[e].k[i]=0;pc[e].ok=0;}
+ if(pc[e].ok&&pc[e].h==h)return;
+ char k[32],*o=k;o=pstr(o,"ujc201.");o=pstr(o,nm);*o=0;
+ if(setprop(k,v,l)==0){pc[e].h=h;pc[e].ok=1;}}
 static void dwi(const char*n,int v){char t[16],*o=pnum(t,v);dw(n,t,(int)(o-t));}
 static int seg10(int v,int lo,int hi){if(v<=lo)return 0;if(v>=hi)return 10;return (v-lo)*10/(hi-lo);}
 static void status(void){
@@ -79,7 +99,7 @@ static void status(void){
  {int m1=a<0?-1:(int)((s64)a*12020/902),m2=v<0?-1:(int)((s64)v*12020/649);char b[16],*q;
   q=pvolt(b,m1);dw("vin1",b,(int)(q-b)-(m1>=0));q=pvolt(b,m2);dw("vin2",b,(int)(q-b)-(m2>=0));   /* sans le "V" */
   dwi("vinseg",m1<0?0:seg10(m1,9000,15000));
-  if(t>0){dwi("cpu",t/1000);dwi("cpuseg",seg10(t/1000,30,90));}else dw("cpu","--",2);}
+  if(t>0){dwi("cpu",t/1000);dwi("cpuseg",seg10(t/1000,30,90));}else{dw("cpu","--",2);dwi("cpuseg",0);}}
  o=pstr(o,"CPU: ");if(t>-100000){o=pnum(o,t/1000);o=pstr(o," \xC2\xB0""C");}else o=pstr(o,"--");
  /* calibration 12.02 V : ch4 902 mV (x13.33), VCDT 649 mV (x18.52) - a valider en voiture */
  o=pstr(o,"   Vin: ");o=pvolt(o,a<0?-1:(int)((s64)a*12020/902));o=pstr(o," | ");o=pvolt(o,v<0?-1:(int)((s64)v*12020/649));
@@ -125,7 +145,7 @@ static char*p2(char*o,int v){*o++='0'+(v/10)%10;*o++='0'+v%10;return o;}
 static char*phex(char*o,int v){const char*h="0123456789ABCDEF";*o++=h[(v>>4)&15];*o++=h[v&15];return o;}
 static void mcu_publish(void){char s[128],*o=s;
  o=pstr(o,"ACC ");o=onoff(o,m_acc);o=pstr(o,"   HB ");o=onoff(o,m_hb);o=pstr(o,"   LIGHTS ");o=onoff(o,m_ill);
- *o++='\n';wrtxt("/tmp/twcar",s,o-s);
+ dw("car",s,(int)(o-s));*o++='\n';wrtxt("/tmp/twcar",s,o-s);
  {char b[8],*q;q=onoff(b,m_acc);dw("acc",b,(int)(q-b));q=onoff(b,m_hb);dw("hb",b,(int)(q-b));q=onoff(b,m_ill);dw("ill",b,(int)(q-b));}
  if(m_ver[0])dw("mcuver",m_ver,slen(m_ver));else dw("mcuver","no answer from MCU",18);
  o=s;o=pstr(o,"ACC:");o=onoff(o,m_acc);o=pstr(o," HB:");o=onoff(o,m_hb);o=pstr(o," ILL:");o=onoff(o,m_ill);*o++='\n';wrtxt("/tmp/twcar_s",s,o-s);}
@@ -243,11 +263,12 @@ static void mcu_loop(void){
   tio.c_cflag=(tio.c_cflag&~(0010017u/*CBAUD*/|0000060u/*CSIZE*/|0000400u/*PARENB*/|0000100u/*CSTOPB*/|020000000000u/*CRTSCTS*/))|0010002u/*B115200*/|0000060u/*CS8*/|0000200u/*CREAD*/|0004000u/*CLOCAL*/;
   tio.c_cc[6]=0;tio.c_cc[5]=0;sys(SYS_ioctl,fd,TCSETS,(s64)&tio,0);}
  logs("touchfix: MCU ttyS1 ouvert\n");
- const unsigned char ready[1]={1},qacc[2]={0,0};
+ const unsigned char ready[1]={1},qacc[2]={0,0},qhb[2]={4,0};   /* F0 04 00 : QUERY_HAND_BRAKE (Protocol.java) */
  unsigned char buf[512];int bl=0,tries=0;s64 tick=0;
  for(;;){
-  if(!m_ver[0]&&tries<3&&(tick%40)==0){mcu_send(fd,0x1F,ready,1);msleep(50);mcu_send(fd,0xF0,qacc,2);tries++;}
+  if(!m_ver[0]&&tries<3&&(tick%40)==0){mcu_send(fd,0x1F,ready,1);msleep(50);mcu_send(fd,0xF0,qacc,2);msleep(50);mcu_send(fd,0xF0,qhb,2);tries++;}
   if(m_acc<0&&tick>0&&(tick%100)==0)mcu_send(fd,0xF0,qacc,2);
+  if(m_hb<0&&tick>0&&(tick%100)==50)mcu_send(fd,0xF0,qhb,2);
   if((tick%20)==0)keys_load();
   s64 n=sys(SYS_read,fd,(s64)(buf+bl),sizeof buf-bl,0);
   if(n>0){bl+=(int)n;

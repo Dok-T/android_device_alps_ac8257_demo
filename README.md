@@ -122,7 +122,7 @@ trame `EE FA <len = donnees+1> <cmd> <donnees> <somme des octets precedents>`.
 `touchfix` envoie `1F 01` (PC_READY, comme Android au demarrage ; pas de battement de coeur sur AC8257) et `F0 00 00`
 (etat ACC), puis lit `00` ACC, `04` frein a main, `0B` feux, `1F` etat groupe (b6 frein, b4 feux), `0A` version.
 Etat ecrit dans `/tmp/twcar` (affiche par `%tw_ujc201_car%`), `/tmp/twcar_s`, `/tmp/mcu_version` et `/tmp/ujc201/<nom>`
-(page graphique Advanced > *Vehicle / MCU dashboard*, variables `%tw_ujc201_v_<nom>%`, build GitHub).
+(page graphique Advanced > *Vehicle / MCU dashboard* et zone droite de la barre : proprietes systeme `ujc201.<nom>`, lues par le theme avec `%property.ujc201.<nom>%`, sans patch du binaire TWRP). Requete frein a main au demarrage : `F0 04 00`.
 Les entrees Advanced passent par `terminalcommand` : la sortie des scripts s'affiche dans la console (l'action `cmd` n'affiche rien).
 LED des touches : commande `0F 04 <panneau> R G B <mode>` (R,G,B 0..99 ; mode 1 auto, 2 manuel, 3 semi-auto ;
 en manuel/semi-auto, allumees seulement feux allumes).

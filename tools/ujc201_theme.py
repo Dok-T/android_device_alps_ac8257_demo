@@ -5,9 +5,9 @@ apply_twrp_patches.py (source) et ujc201_postprocess.py (image deja compilee).
 
   - Advanced : entrees Power info / USB / MCU info / touches au volant. Elles passent par action_page +
     terminalcommand : la sortie du script s'affiche dans la console (l'action "cmd" n'affiche rien).
-  - Page graphique "ujc201_vehicle" (tableau de bord : tension, CPU, ACC / frein / feux, MCU, volant),
-    seulement si le binaire recovery gere les variables %tw_ujc201_v_<nom>% (marqueur UJC201-dash) :
-    touchfix ecrit les valeurs dans /tmp/ujc201/<nom>.
+  - Page graphique "ujc201_vehicle" (tableau de bord : tension, CPU, ACC / frein / feux, MCU, volant) et
+    zone droite de la barre d'etat : valeurs = proprietes systeme ujc201.<nom> posees par touchfix, lues par
+    le theme avec %property.ujc201.<nom>% (gere par DataManager::GetValue : aucun patch du binaire TWRP).
 Idempotent : le bloc Advanced est entre marqueurs et remplace a chaque passage.
 """
 import re
@@ -59,12 +59,12 @@ def cond(var, val, op=None):
     return '<condition var1="%s"%s var2="%s"/>' % (var, ' op="%s"' % op if op else '', val)
 
 def gauge(x, y, var, colors, labels):
-    """10 segments : le segment k s'allume si tw_ujc201_v_<var> > k (touchfix ecrit 0..10)"""
+    """10 segments : le segment k s'allume si property.ujc201.<var> > k (touchfix ecrit 0..10)"""
     s = ''
     for k in range(10):
         sx = x + k * 53
         s += fill(sx, y, 47, 36, TRACK)
-        s += fill(sx, y, 47, 36, colors[k], cond('tw_ujc201_v_' + var, k, '&gt;'))
+        s += fill(sx, y, 47, 36, colors[k], cond('property.ujc201.' + var, k, '&gt;'))
     s += text(x, y + 50, labels[0], 'font_s', GREY)
     s += text(x + 263, y + 50, labels[1], 'font_s', GREY, 5)
     s += text(x + 527, y + 50, labels[2], 'font_s', GREY, 1)
@@ -74,8 +74,8 @@ def pill(x, y, label, var, on_col):
     s = text(x, y + 22, label, 'font_m')
     px = x + 328
     s += fill(px, y + 8, 200, 64, TRACK)
-    s += fill(px, y + 8, 200, 64, on_col, cond('tw_ujc201_v_' + var, 'ON'))
-    s += text(px + 100, y + 40, '%tw_ujc201_v_' + var + '%', 'font_m', WHITE, 4)
+    s += fill(px, y + 8, 200, 64, on_col, cond('property.ujc201.' + var, 'ON'))
+    s += text(px + 100, y + 40, '%property.ujc201.' + var + '%', 'font_m', WHITE, 4)
     return s
 
 def button(x, y, w, h, label, cmd, title):
@@ -93,15 +93,15 @@ def dash_page():
     x = 48
     p += fill(x, Y1, 592, H, CARD)
     p += text(x + 32, Y1 + 26, 'INPUT VOLTAGE', 'font_s', ACC)
-    p += text(x + 32, Y1 + 66, '%tw_ujc201_v_vin1% V', 'ujc_xl')
-    p += text(x + 32, Y1 + 190, 'PMIC VCDT: %tw_ujc201_v_vin2% V', 'font_m', GREY)
+    p += text(x + 32, Y1 + 66, '%property.ujc201.vin1% V', 'ujc_xl')
+    p += text(x + 32, Y1 + 190, 'PMIC VCDT: %property.ujc201.vin2% V', 'font_m', GREY)
     p += gauge(x + 32, Y1 + 270, 'vinseg', [RED] * 4 + [AMBER] * 2 + [GREEN] * 4, ['9 V', '12 V', '15 V'])
     p += text(x + 32, Y1 + 366, 'Calibrated at 12.02 V (bench)', 'font_s', GREY)
     # CPU
     x = 664
     p += fill(x, Y1, 592, H, CARD)
     p += text(x + 32, Y1 + 26, 'CPU TEMPERATURE', 'font_s', ACC)
-    p += text(x + 32, Y1 + 66, '%tw_ujc201_v_cpu% °C', 'ujc_xl')
+    p += text(x + 32, Y1 + 66, '%property.ujc201.cpu% °C', 'ujc_xl')
     p += text(x + 32, Y1 + 190, 'AC8257 · thermal_zone1', 'font_m', GREY)
     p += gauge(x + 32, Y1 + 270, 'cpuseg', [GREEN] * 5 + [AMBER] * 3 + [RED] * 2, ['30', '60', '90 °C'])
     # vehicule
@@ -115,9 +115,9 @@ def dash_page():
     x = 48
     p += fill(x, Y2, 1208, H, CARD)
     p += text(x + 32, Y2 + 26, 'MCU FIRMWARE', 'font_s', ACC)
-    p += text(x + 32, Y2 + 70, '%tw_ujc201_v_mcuver%', 'keylabel')
-    p += text(x + 32, Y2 + 170, 'MCU clock at boot: %tw_ujc201_v_mcutime%', 'font_m')
-    p += text(x + 32, Y2 + 230, 'Frames received: %tw_ujc201_v_frames%', 'font_m')
+    p += text(x + 32, Y2 + 70, '%property.ujc201.mcuver%', 'keylabel')
+    p += text(x + 32, Y2 + 170, 'MCU clock at boot: %property.ujc201.mcutime%', 'font_m')
+    p += text(x + 32, Y2 + 230, 'Frames received: %property.ujc201.frames%', 'font_m')
     p += text(x + 32, Y2 + 310, 'HK32C030 (Cortex-M0) · /dev/ttyS1 115200 8N1 · protocol JAC_V1', 'font_s', GREY)
     p += text(x + 32, Y2 + 356, 'PC_READY (1F 01) sent once at boot · no heartbeat on AC8257', 'font_s', GREY)
     # volant
@@ -125,8 +125,8 @@ def dash_page():
     p += fill(x, Y2, 592, H, CARD)
     p += text(x + 32, Y2 + 26, 'STEERING WHEEL', 'font_s', ACC)
     p += text(x + 32, Y2 + 80, 'Last key', 'font_s', GREY)
-    p += text(x + 32, Y2 + 118, '%tw_ujc201_v_key%', 'font_l')
-    p += text(x + 32, Y2 + 200, '%tw_ujc201_v_keymap% keys mapped', 'font_m', GREY)
+    p += text(x + 32, Y2 + 118, '%property.ujc201.key%', 'font_l')
+    p += text(x + 32, Y2 + 200, '%property.ujc201.keymap% keys mapped', 'font_m', GREY)
     p += button(x + 32, Y2 + 296, 256, 92, 'Learn', '/system/bin/wheelkeys learn', 'Steering wheel keys: learn')
     p += button(x + 304, Y2 + 296, 256, 92, 'Table', '/system/bin/wheelkeys show', 'Steering wheel keys')
     p += ('\t\t\t<action>\n\t\t\t\t<touch key="home"/>\n\t\t\t\t<action function="page">main</action>\n\t\t\t</action>\n'
@@ -134,12 +134,31 @@ def dash_page():
           '\t\t</page>\n')
     return p
 
+CAR_ANCHOR = '''				<text>{@battery_pct=Battery: %tw_battery%}</text>
+			</text>
+'''
+CAR_ITEM = '''
+			<text color="%text_color%">
+				<font resource="font_m"/>
+				<placement x="%indent_right%" y="%row1_header_y%" placement="1"/>
+				<text>%property.ujc201.car%</text>
+			</text>
+'''
+
 FONT_ANCHOR = '<font name="font_l" filename="RobotoCondensed-Regular.ttf" size="42"/>'
 FONT_XL = '\n\t\t<font name="ujc_xl" filename="RobotoCondensed-Regular.ttf" size="88"/>'
 
-def apply(landscape, ui, dash):
-    """retourne (landscape, ui, journal) modifies ; dash = binaire avec variables %tw_ujc201_v_*%"""
+def apply(landscape, ui, dash=True):
+    """retourne (landscape, ui, journal) modifies"""
     out = []
+    # barre d'etat : zone droite (ACC / frein / feux) ; remplace l'ancienne variable %tw_ujc201_car%
+    ui = re.sub(r'\n\t\t\t<text color="%text_color%">\n\t\t\t\t<font resource="font_[ms]"/>\n\t\t\t\t<placement x="%indent_right%" '
+                r'y="%row1_header_y%" placement="1"/>\n\t\t\t\t<text>%(tw_ujc201_car|property\.ujc201\.car)%</text>\n\t\t\t</text>\n', '', ui)
+    if CAR_ANCHOR in ui:
+        ui = ui.replace(CAR_ANCHOR, CAR_ANCHOR + CAR_ITEM, 1)
+        out.append("barre d'etat : zone droite")
+    else:
+        out.append('ATTENTION : ancre batterie introuvable (barre vehicule en mode compact)')
     # bloc Advanced : on retire l'ancien (marqueurs ou anciennes entrees "cmd") puis on remet le bloc
     landscape = re.sub(r'[ \t]*' + re.escape(BEGIN) + r'.*?' + re.escape(END) + r'\n', '', landscape, flags=re.S)
     for n in OLD_NAMES:

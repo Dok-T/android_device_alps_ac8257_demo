@@ -253,15 +253,6 @@ def main():
         rec, ok = patch_cputemp_text(bytes(rec)); e[2] = bytearray(rec)
         log('barre d\'etat texte :', 'OK (patch binaire)' if ok else 'motif introuvable (affichage numerique conserve)')
 
-    # barre vehicule (%tw_ujc201_car%) : le marqueur dit a touchfix ou ecrire l'etat MCU
-    car = find(ents, b'system/etc/ujc201_carstatus')
-    if b'UJC201-carstatus' in rec:
-        if not car: put(ents, b'system/etc/ujc201_carstatus', b'1\n')
-        log('barre vehicule : zone de droite (source patche)')
-    else:
-        if car: ents.remove(car)
-        log('barre vehicule : mode compact (a la suite de la ligne CPU / Vin)')
-
     # fenetres + horloge MCU (gui/pages.cpp patche) : sinon touchfix met le titre en tete de ligne et regle l'horloge
     pop = find(ents, b'system/etc/ujc201_popup')
     if b'UJC201-popup' in rec:
@@ -280,13 +271,18 @@ def main():
         s = bytes(ui[2]).decode()
         s = s.replace('<text>{@cpu_temp=CPU: %tw_cpu_temp% °C}</text>', '<text>%tw_cpu_temp%</text>')
         ui[2] = bytearray(s.encode())
-    # theme : entrees Advanced (sortie console) + tableau de bord si le binaire gere %tw_ujc201_v_*%
+    # theme : entrees Advanced (sortie console), tableau de bord, zone droite de la barre d'etat
+    # (%property.ujc201.*% : proprietes posees par touchfix, sans patch du binaire)
     la = find(ents, b'twres/landscape.xml')
-    l2, u2, msg = ujc201_theme.apply(bytes(la[2]).decode(), bytes(ui[2]).decode(), dash=b'UJC201-dash' in rec)
+    l2, u2, msg = ujc201_theme.apply(bytes(la[2]).decode(), bytes(ui[2]).decode())
     la[2] = bytearray(l2.encode()); ui[2] = bytearray(u2.encode())
     log('theme :', ', '.join(msg))
-    if b'UJC201-dash' not in rec:
-        log('tableau de bord : absent (binaire sans patch data.cpp UJC201-dash -> build GitHub)')
+    # marqueur pour touchfix : zone droite presente -> pas d'etat vehicule a la suite de la ligne CPU / Vin
+    car = find(ents, b'system/etc/ujc201_carstatus')
+    if '%property.ujc201.car%' in u2:
+        if not car: put(ents, b'system/etc/ujc201_carstatus', b'1\n')
+    elif car:
+        ents.remove(car)
 
     pd = find(ents, b'prop.default')
     if pd and b'persist.twrp.rotation' not in pd[2]:

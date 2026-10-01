@@ -5,11 +5,10 @@ apply_twrp_patches.py - patchs source TWRP (bootable/recovery, branche android-1
   1. data.cpp : tw_cpu_temp affiche tel quel le texte de TW_CUSTOM_CPU_TEMP_PATH s'il contient "CPU"
      (barre d'etat ecrite par touchfix : temperature + tension d'entree). Sinon comportement d'origine.
   2. Theme landscape_hdpi/ui.xml : en-tete "%tw_cpu_temp%" au lieu de "CPU: %tw_cpu_temp% °C".
-  3. Theme (tools/ujc201_theme.py) : entrees Advanced (sortie des scripts dans la console) et page graphique
-     "Vehicle / MCU dashboard" ; data.cpp : variables %tw_ujc201_v_<nom>% = /tmp/ujc201/<nom> (marqueur UJC201-dash).
-  4. data.cpp + theme : variable %tw_ujc201_car% (texte de /tmp/twcar, ecrit par touchfix : ACC, frein a main,
-     feux) affichee a droite de la barre d'etat (place de la batterie, absente sur cette carte).
-  5. gui/pages.cpp : fenetres "snackbar" dessinees par-dessus toutes les pages (texte /tmp/twpopup ecrit par
+  3. Theme (tools/ujc201_theme.py) : entrees Advanced (sortie des scripts dans la console), page graphique
+     "Vehicle / MCU dashboard" et zone droite de la barre d'etat, via %property.ujc201.<nom>% (proprietes posees
+     par touchfix ; aucun patch du binaire necessaire, applique aussi par ujc201_postprocess.py).
+  4. gui/pages.cpp : fenetres "snackbar" dessinees par-dessus toutes les pages (texte /tmp/twpopup ecrit par
      touchfix : feux allumes, touche au volant, invite de wheelkeys) + reglage de l'horloge sur l'heure du MCU
      (/tmp/mcu_time, heure locale -> mktime() dans le fuseau TWRP).
 
@@ -44,36 +43,13 @@ DATA_NEW = '''#ifdef TW_CUSTOM_CPU_TEMP_PATH
 		value = TWFunc::to_string(convert_temp);
 		return 0;
 	}
-	else if (varName == "tw_ujc201_car")
-	{
-		/* UJC201-carstatus : etat vehicule lu par touchfix sur le MCU (/dev/ttyS1) */
-		string txt;
-		if (TWFunc::read_file("/tmp/twcar", txt) != 0)
-			return -1;
-		while (!txt.empty() && (txt.back() == '\\n' || txt.back() == '\\r'))
-			txt.pop_back();
-		value = txt;
-		return 0;
-	}
 	return -1;
 }'''
 DATA_INIT_OLD = '''	if (TWFunc::Path_Exists(cpu_temp_file)) {
 		mConst.SetValue("tw_no_cpu_temp", "0");'''
 DATA_INIT_NEW = '''	printf("UJC201-statustext\\n");
-	printf("UJC201-carstatus\\n");
 	if (TWFunc::Path_Exists(cpu_temp_file)) {
 		mConst.SetValue("tw_no_cpu_temp", "0");'''
-
-CAR_ANCHOR = '''				<text>{@battery_pct=Battery: %tw_battery%}</text>
-			</text>
-'''
-CAR_ITEM = '''
-			<text color="%text_color%">
-				<font resource="font_m"/>
-				<placement x="%indent_right%" y="%row1_header_y%" placement="1"/>
-				<text>%tw_ujc201_car%</text>
-			</text>
-'''
 
 UI_OLD = '<text>{@cpu_temp=CPU: %tw_cpu_temp% °C}</text>'
 UI_NEW = '<text>%tw_cpu_temp%</text>'
@@ -268,28 +244,6 @@ PAGES_UPDATE_NEW = """	int res = (mCurrentSet ? mCurrentSet->Update() : -1);
 	{
 		int c_res = mMouseCursor->Update();"""
 
-DASH_OLD = """		value = txt;
-		return 0;
-	}
-	return -1;
-}"""
-DASH_NEW = """		value = txt;
-		return 0;
-	}
-	else if (varName.compare(0, 12, "tw_ujc201_v_") == 0)
-	{
-		/* UJC201-dash : valeurs du tableau de bord vehicule (/tmp/ujc201/<nom>, ecrites par touchfix) */
-		string txt;
-		if (TWFunc::read_file("/tmp/ujc201/" + varName.substr(12), txt) != 0)
-			txt = "--";
-		while (!txt.empty() && (txt.back() == '\\n' || txt.back() == '\\r'))
-			txt.pop_back();
-		value = txt;
-		return 0;
-	}
-	return -1;
-}"""
-
 def patch(path, old, new, done_marker, count=1):
     s = open(path, encoding='utf-8').read()
     if done_marker in s:
@@ -307,18 +261,6 @@ def main():
     patch(j('data.cpp'), DATA_OLD, DATA_NEW, 'UJC201-statustext : ligne')
     patch(j('data.cpp'), DATA_INIT_OLD, DATA_INIT_NEW, 'printf("UJC201-statustext')
     patch(j('gui/theme/landscape_hdpi/ui.xml'), UI_OLD, UI_NEW, UI_NEW, count=1)
-    ui = j('gui/theme/landscape_hdpi/ui.xml')
-    t = open(ui, encoding='utf-8').read()
-    if '%tw_ujc201_car%' in t:
-        print('deja applique : barre vehicule')
-    elif CAR_ANCHOR in t:
-        open(ui, 'w', encoding='utf-8').write(t.replace(CAR_ANCHOR, CAR_ANCHOR + CAR_ITEM, 1)); print('patche : barre vehicule (droite)')
-    else:
-        print('ATTENTION : ancre batterie introuvable, barre vehicule non ajoutee (touchfix passe en mode compact)')
-    patch(j('data.cpp'), DASH_OLD, DASH_NEW, 'UJC201-dash :')
-    # marqueur dans le binaire (lu par ujc201_postprocess.py pour ajouter le tableau de bord)
-    patch(j('data.cpp'), '\tprintf("UJC201-carstatus\\n");\n',
-          '\tprintf("UJC201-carstatus\\n");\n\tprintf("UJC201-dash\\n");\n', 'printf("UJC201-dash')
     la, ui = j('gui/theme/common/landscape.xml'), j('gui/theme/landscape_hdpi/ui.xml')
     l2, u2, msg = ujc201_theme.apply(open(la, encoding='utf-8').read(), open(ui, encoding='utf-8').read(), dash=True)
     open(la, 'w', encoding='utf-8').write(l2); open(ui, 'w', encoding='utf-8').write(u2)
