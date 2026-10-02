@@ -348,9 +348,9 @@ static void sendToMcu(IBinder b, int cmd, byte[] data) throws RemoteException { 
           b.transact(20, in, out, 0); out.readException(); }
     finally { in.recycle(); out.recycle(); }
 }
-static boolean isAccOn(IBinder b) throws RemoteException {                         // transaction 52
+static String mcuVersion(IBinder b) throws RemoteException {                       // transaction 1
     Parcel in = Parcel.obtain(), out = Parcel.obtain();
-    try { in.writeInterfaceToken(ICAR); b.transact(52, in, out, 0); out.readException(); return out.readInt() != 0; }
+    try { in.writeInterfaceToken(ICAR); b.transact(1, in, out, 0); out.readException(); return out.readString(); }
     finally { in.recycle(); out.recycle(); }
 }
 // ex. : sendToMcu(b, 0xF0, new byte[]{0x0B, 0});   // demande l'etat des feux
@@ -365,16 +365,24 @@ static boolean isAccOn(IBinder b) throws RemoteException {                      
 | 34 | `setCmdParam(int cmd, byte[] data)` | idem |
 | 27 | `upgradeMcu(String path, IMcuUpgradeCallback)` | mise a jour du MCU |
 | 46 | `setADKey(int, int)` | 161 = touches normales, autre = touches brutes vers `onADKeyChanged` |
-| 52 | `isAccOn()` | etat ACC |
+| 1 / 2 / 11 / 14 / 66 | `getProtocolMcuVersion` / `getCarId` / `getHandbrakeStatus` / `getHeadLightStatus` / `getProtocolCanVersion` | lectures |
+| 52 | `isAccOn()` | **bouchon : renvoie toujours `false`** dans ivi-services 3.0.0 ; utiliser `onAccChanged` ou le broadcast |
 
+`CarService` est exporte sans permission et ne verifie pas l'appelant (manifeste et `onBind` de l'APK 3.0.0).
 Pour les callbacks (`ICarCallback`, `IPassthroughDataCallback`), recopier les interfaces AIDL depuis l'APK
-decompile (meme nom de paquet, meme ordre des methodes). Sans liaison : ecouter le broadcast
-`com.jancar.services.action.acc`. Le service est utilise par d'autres applis Jancar ; une eventuelle permission
-de signature n'a pas ete verifiee.
+decompile (meme nom de paquet, meme ordre des methodes) ou repondre aux codes de transaction (1..34) dans un
+`Binder`. Sans liaison : ecouter le broadcast `com.jancar.services.action.acc` (extra booleen `acc`).
+
+Trames brutes sans toucher au port : si le reglage `global_mcudatadebug` vaut `true` (fournisseur
+`content://com.jancar.settings.provider/settings`), ivi-services journalise sous le tag `JLOG` chaque trame recue
+(`CmdId = 0x0b, Data = | 01 |`, ACK exclus) et envoyee (`send: [ee fa 02 1f 01 0a ]`). Lecture par `logcat`
+(root, ou permission `READ_LOGS` accordee par `adb shell pm grant`).
 
 ### 13.2 Avec root sous Android
-`ivi-services` occupe toujours le port : rester sur l'AIDL. Pour observer le trafic sans le perturber, journaliser
-les evenements cote AIDL plutot que lire `/dev/ttyS1`.
+`ivi-services` occupe toujours le port. Ecrire est sans danger si chaque trame part en **un seul `write()`** (le
+pilote tty serialise les ecritures) et si l'on ne reconfigure pas le port ; l'ACK du MCU est alors lu par
+ivi-services. Lire `/dev/ttyS1` en parallele vole les octets a ivi-services : preferer le journal `JLOG` ci-dessus.
+C'est ce que fait l'app `apps/jacmcu` (pont natif `jacbridge` lance par `su`).
 
 ### 13.3 TWRP / Linux / PC
 Ici rien d'autre n'ouvre le port : acces direct a `/dev/ttyS1` (TWRP : `touchfix`, journal `/tmp/mcu.log`).

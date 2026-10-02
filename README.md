@@ -170,6 +170,7 @@ Le firmware annonce `ro.build.version.release=12` (SDK 28 = Android 9) et le fin
 - `tools/ujc201_theme.py` : entrees Advanced + page graphique (partage source / post-traitement)
 - `tools/ujc201_postprocess.py` : post-traitement de l'image (signature AVB, patchs binaires de secours)
 - `tools/mcu/` : analyse du firmware MCU (`mdis.py`, `ana*.py`) et `jacmcu.py` (trames, decodage de `/tmp/mcu.log`, moniteur serie)
+- `apps/jacmcu/` : app Android JacMCU (etat, commandes, console MCU ; mode service Jancar ou root)
 - `docs/mcu_firmware.md` : reference complete du MCU (brochage, alimentation, protocole, interfacage Android)
 - `tools/bootmenu/` : menu de demarrage (source C, generateur d'interface, polices Roboto Apache 2.0, `mkboot.py`)
 
