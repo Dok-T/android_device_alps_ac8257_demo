@@ -1,6 +1,6 @@
 # Changelog
 
-## Depuis 3.7.1_12 (`858a3c4`) — non publie
+## v1.1 — depuis 3.7.1_12 (`858a3c4`)
 
 Teste sur l'appareil : menu de demarrage, tableau de bord, barre d'etat, frein a main, sortie console des menus.
 A valider : bandeau / fenetres, synchro horloge, touches au volant (aucune trame `0x20` capturee pour l'instant).
