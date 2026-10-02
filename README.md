@@ -147,6 +147,14 @@ Apprentissage : Advanced > *Steering wheel keys: learn* (`wheelkeys learn`, VOL+
 TWRP n'a pas de navigation au clavier : `back` = page precedente, `home` = menu principal, `power` = verrouillage,
 `enter` = valider un champ texte, `bl+`/`bl-` = luminosite ; `volup`/`voldown` ne font rien dans TWRP seul.
 
+## Correctif build.prop (zip TWRP, optionnel)
+Le firmware annonce `ro.build.version.release=12` (SDK 28 = Android 9) et le fingerprint d'une autre plateforme
+(`evb3561sv`, Android 6.0) dans `/system/build.prop`. `tools/buildprop_fix/build.sh` construit deux zips TWRP :
+- `ujc201_buildprop_fix.zip` : reprend release / fingerprint / description du fingerprint vendor
+  (`alps/full_UJC201_64/ac8257_demo:9/PPR1.180610.011/1356:user/release-keys`) ; sauvegarde `build.prop.bak` a cote
+  et copie dans `/sdcard/UJC201_buildprop_backup/<date>/` ;
+- `ujc201_buildprop_restore.zip` : remet l'original (`.bak`, sinon la derniere copie de `/sdcard`).
+
 ## Fichiers
 - `prebuilt/kernel` : noyau stock 250718 (#25) + patch `want_initramfs`
 - `prebuilt/dtbo.img` : recovery_dtbo du recovery stock 250718
@@ -154,6 +162,7 @@ TWRP n'a pas de navigation au clavier : `back` = page precedente, `home` = menu 
 - `recovery/root/` : rc, `touchfix`, `usbmode`, `powerinfo`, `mcuinfo`, `wheelkeys`, `ujc201_keys.conf`
 - `tools/touchfix/` : source de `touchfix` (C autonome, sans libc) + `build.sh`
 - `tools/apply_twrp_patches.py` : patchs du source TWRP (applique par le workflow)
+- `tools/buildprop_fix/` : zips TWRP correctif / restauration du build.prop
 - `tools/ujc201_theme.py` : entrees Advanced + page graphique (partage source / post-traitement)
 - `tools/ujc201_postprocess.py` : post-traitement de l'image (signature AVB, patchs binaires de secours)
 - `tools/bootmenu/` : menu de demarrage (source C, generateur d'interface, polices Roboto Apache 2.0, `mkboot.py`)
