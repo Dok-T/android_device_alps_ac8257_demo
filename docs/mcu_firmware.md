@@ -310,6 +310,18 @@ Toute modification est ecrite **3 s plus tard** (effacement de la page + 8 mots)
 - Il n'existe **aucune commande de lecture** de la flash : le firmware en place ne peut pas etre sauvegarde par le
   port serie. Le bootloader reste en place, donc une mise a jour ratee se rattrape normalement en relancant la
   mise a jour ; sinon, SWD (connect under reset) [D].
+- Voies de secours de la puce (manuel utilisateur HK32C030 V2.2/V2.6, datasheet V1.3, pack Keil DFP 1.0.5 du SDK) :
+  - **ROM bootloader** (System memory 0x1FFFEC00, 3 Ko, non effacable) : BOOT0 = PF8 (broche 44 en LQFP48,
+    rappel au 0 interne de 50 kOhm) a 1 au reset -> reprogrammation par UART1 PA9/PA10 (= liaison boitier CAN de
+    cette carte) ou UART2 PA14/PA15. Protocole non documente (compatibilite AN3155 non verifiee).
+    Inaccessible si les option bytes ont reaffecte PF8 en GPIO (BOOT_SEL = 0xADBC, nBOOT_BIT_SEL = 0) ou en RDP
+    niveau 2. Le firmware applicatif ne configure pas PF8 (GPIOF : PF6/PF7 seulement) et ne touche pas aux
+    option bytes (pas de cle OPTKEYR) [F] ; leur etat reel reste inconnu.
+  - **SWD** PA13/PA14 (non reconfigures par l'appli [F]) : algorithmes `HK32C030xx_FLASH.FLM` / `_OPT.FLM` du pack
+    Keil (utilisables par pyOCD / Keil). RDP niveau 0 : lecture libre (sauvegarde complete possible, bootloader
+    Jancar compris). Niveau 1 (valeur apres effacement des option bytes) : flash illisible en SWD / ROM bootloader,
+    seul l'effacement total est possible (perd le bootloader Jancar, a remplacer par un petit lanceur vers
+    0x08002400). Niveau 2 : SWD et ROM bootloader definitivement bloques.
 
 <a id="12-android"></a>
 ## 12. Cote Android (ivi-services, `com.jancar.services`) [A]
