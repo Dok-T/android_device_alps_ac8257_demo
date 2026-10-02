@@ -269,12 +269,13 @@ static void mcu_loop(void){
   tio.c_cflag=(tio.c_cflag&~(0010017u/*CBAUD*/|0000060u/*CSIZE*/|0000400u/*PARENB*/|0000100u/*CSTOPB*/|020000000000u/*CRTSCTS*/))|0010002u/*B115200*/|0000060u/*CS8*/|0000200u/*CREAD*/|0004000u/*CLOCAL*/;
   tio.c_cc[6]=0;tio.c_cc[5]=0;sys(SYS_ioctl,fd,TCSETS,(s64)&tio,0);}
  logs("touchfix: MCU ttyS1 ouvert\n");
- const unsigned char ready[1]={1},qacc[2]={0,0},qhb[2]={4,0};   /* F0 04 00 : QUERY_HAND_BRAKE (Protocol.java) */
+ const unsigned char ready[1]={1},qacc[2]={0,0},qhb[2]={4,0},qill[2]={0x0B,0};   /* F0 04 00 frein a main, F0 0B 00 feux (gestionnaire F0 du firmware MCU) */
  unsigned char buf[512];int bl=0,tries=0;s64 tick=0;
  for(;;){
-  if(!m_ver[0]&&tries<3&&(tick%40)==0){mcu_send(fd,0x1F,ready,1);msleep(50);mcu_send(fd,0xF0,qacc,2);msleep(50);mcu_send(fd,0xF0,qhb,2);tries++;}
+  if(!m_ver[0]&&tries<3&&(tick%40)==0){mcu_send(fd,0x1F,ready,1);msleep(50);mcu_send(fd,0xF0,qacc,2);msleep(50);mcu_send(fd,0xF0,qhb,2);msleep(50);mcu_send(fd,0xF0,qill,2);tries++;}
   if(m_acc<0&&tick>0&&(tick%100)==0)mcu_send(fd,0xF0,qacc,2);
   if(m_hb<0&&tick>0&&(tick%100)==50)mcu_send(fd,0xF0,qhb,2);
+  if(m_ill<0&&tick>0&&(tick%100)==75)mcu_send(fd,0xF0,qill,2);
   if((tick%20)==0)keys_load();
   s64 n=sys(SYS_read,fd,(s64)(buf+bl),sizeof buf-bl,0);
   if(n>0){bl+=(int)n;
