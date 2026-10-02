@@ -5,6 +5,11 @@
 #   (alps/full_evb3561sv_w_65_m0/...:6.0/MRA58K/...).
 # Les vraies valeurs sont reprises du fingerprint de /vendor/build.prop (ro.vendor.build.fingerprint) :
 #   ro.build.version.release, ro.build.fingerprint, ro.build.description.
+# Le framework Jancar (ActivityThread.bindApplication) reecrit Build.VERSION.RELEASE : "12" pour les Reglages
+# Android tant que persist.jancar.ver_rel est vide, SDK 31 pour les benchmarks (persist.jancar.sdk).
+# Neutralise par persist.jancar.ver_rel=<release> et persist.jancar.sdk=<sdk> :
+#   - dans build.prop (valeurs par defaut, gardees apres un reset de /data) ;
+#   - /system/etc/init/ujc201_version.rc : reimpose a chaque demarrage (ecrase une valeur enregistree dans /data).
 # Sauvegarde de chaque fichier modifie : <fichier>.bak a cote (garde l'original s'il existe deja)
 # + copie dans /sdcard/UJC201_buildprop_backup/<date>/ (meme arborescence).
 # Retour : zip ujc201_buildprop_restore.
@@ -73,18 +78,29 @@ STAMP=$(date +%Y%m%d-%H%M%S)
 BKDIR=$SDCARD/UJC201_buildprop_backup/$STAMP
 CHANGED=0
 
+TMP=/tmp/ujc201_buildprop.$$
 for f in $FILES; do
 	ui_print " "
 	ui_print "$f"
-	OLDREL=$(prop ro.build.version.release "$f"); OLDFP=$(prop ro.build.fingerprint "$f")
-	OLDDESC=$(prop ro.build.description "$f")
-	if [ "$OLDREL" = "$REL" ] && [ "$OLDFP" = "$VFP" ] && [ "$OLDDESC" = "$DESC" ]; then
-		ui_print "  deja corrige, rien a faire"; continue
+	SDK=$(prop ro.build.version.sdk "$f"); [ -n "$SDK" ] || SDK=28
+	# contenu cible : 3 lignes corrigees + valeurs persist.jancar.* (neutralisent la fausse version du framework)
+	sed -e "s|^ro.build.version.release=.*|ro.build.version.release=$REL|" \
+	    -e "s|^ro.build.fingerprint=.*|ro.build.fingerprint=$VFP|" \
+	    -e "s|^ro.build.description=.*|ro.build.description=$DESC|" \
+	    -e "s|^persist.jancar.ver_rel=.*|persist.jancar.ver_rel=$REL|" \
+	    -e "s|^persist.jancar.sdk=.*|persist.jancar.sdk=$SDK|" "$f" > $TMP || abort "sed"
+	if ! grep -q '^persist.jancar.ver_rel=' $TMP; then
+		{ echo ""; echo "# UJC201 fix : vraie version Android (le framework Jancar annonce 12 / SDK 31 sinon)"
+		  echo "persist.jancar.ver_rel=$REL"; } >> $TMP
 	fi
-	ui_print "  release     : $OLDREL -> $REL"
-	ui_print "  fingerprint : $OLDFP"
+	grep -q '^persist.jancar.sdk=' $TMP || echo "persist.jancar.sdk=$SDK" >> $TMP
+	[ -s $TMP ] || abort "resultat vide, fichier non modifie"
+	if cmp -s $TMP "$f"; then ui_print "  deja corrige, rien a faire"; continue; fi
+	ui_print "  release     : $(prop ro.build.version.release "$f") -> $REL"
+	ui_print "  fingerprint : $(prop ro.build.fingerprint "$f")"
 	ui_print "             -> $VFP"
-	ui_print "  description : $OLDDESC -> $DESC"
+	ui_print "  description : $(prop ro.build.description "$f") -> $DESC"
+	ui_print "  persist.jancar.ver_rel=$REL  persist.jancar.sdk=$SDK"
 
 	# sauvegardes (avant toute modification)
 	if [ -f "$f.bak" ]; then
@@ -97,22 +113,34 @@ for f in $FILES; do
 	cp -p "$f" "$BKDIR$f" || abort "copie vers la memoire interne impossible"
 	ui_print "  copie      : $BKDIR$f"
 
-	# remplacement des 3 lignes ; reecriture sur place (garde inode, droits et contexte SELinux)
-	TMP=/tmp/ujc201_buildprop.$$
-	sed -e "s|^ro.build.version.release=.*|ro.build.version.release=$REL|" \
-	    -e "s|^ro.build.fingerprint=.*|ro.build.fingerprint=$VFP|" \
-	    -e "s|^ro.build.description=.*|ro.build.description=$DESC|" "$f" > $TMP || abort "sed"
-	[ -s $TMP ] || abort "resultat vide, fichier non modifie"
+	# reecriture sur place (garde inode, droits et contexte SELinux)
 	cat $TMP > "$f" || abort "ecriture de $f impossible (restaurer $f.bak)"
-	rm -f $TMP
 	sync
-
-	# verification
-	[ "$(prop ro.build.version.release "$f")" = "$REL" ] && [ "$(prop ro.build.fingerprint "$f")" = "$VFP" ] \
-		|| abort "verification echouee : restaurer $f.bak"
+	cmp -s $TMP "$f" || abort "verification echouee : restaurer $f.bak"
 	ui_print "  OK"
 	CHANGED=$((CHANGED + 1))
 done
+rm -f $TMP
+
+# --- service init : reimpose les valeurs a chaque demarrage (ecrase une valeur deja enregistree dans /data)
+RC=$SYSMNT/system/etc/init/ujc201_version.rc
+SDK=$(prop ro.build.version.sdk $(echo $FILES | cut -d' ' -f1)); [ -n "$SDK" ] || SDK=28
+RCTXT="# UJC201 fix : vraie version Android a chaque demarrage (framework Jancar, ActivityThread)
+on property:sys.boot_completed=1
+    setprop persist.jancar.ver_rel $REL
+    setprop persist.jancar.sdk $SDK"
+ui_print " "
+if [ -f "$RC" ] && [ "$(cat "$RC")" = "$RCTXT" ]; then
+	ui_print "$RC : deja present"
+elif [ -d "$(dirname "$RC")" ]; then
+	echo "$RCTXT" > "$RC" || abort "ecriture de $RC impossible"
+	chmod 0644 "$RC"; chown 0:0 "$RC" 2>/dev/null
+	[ -z "$UJC_TEST" ] && chcon u:object_r:system_file:s0 "$RC" 2>/dev/null
+	ui_print "$RC : cree"
+	CHANGED=$((CHANGED + 1))
+else
+	ui_print "ATTENTION : $(dirname "$RC") absent, service init non installe"
+fi
 
 ui_print " "
 if [ $CHANGED -gt 0 ]; then

@@ -153,6 +153,10 @@ Le firmware annonce `ro.build.version.release=12` (SDK 28 = Android 9) et le fin
 - `ujc201_buildprop_fix.zip` : reprend release / fingerprint / description du fingerprint vendor
   (`alps/full_UJC201_64/ac8257_demo:9/PPR1.180610.011/1356:user/release-keys`) ; sauvegarde `build.prop.bak` a cote
   et copie dans `/sdcard/UJC201_buildprop_backup/<date>/` ;
+  neutralise aussi la fausse version du framework Jancar (`ActivityThread.bindApplication` : « 12 » dans les
+  Reglages Android tant que `persist.jancar.ver_rel` est vide, SDK 31 pour AnTuTu / Geekbench / AIDA64 via
+  `persist.jancar.sdk`) : `persist.jancar.ver_rel=9` et `persist.jancar.sdk=28` dans `build.prop` (apres un reset)
+  et `/system/etc/init/ujc201_version.rc` (reimpose a chaque demarrage) ;
 - `ujc201_buildprop_restore.zip` : remet l'original (`.bak`, sinon la derniere copie de `/sdcard`).
 
 ## Fichiers
