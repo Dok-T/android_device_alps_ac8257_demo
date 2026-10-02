@@ -394,7 +394,7 @@ Trames brutes sans toucher au port : si le reglage `global_mcudatadebug` vaut `t
 `ivi-services` occupe toujours le port. Ecrire est sans danger si chaque trame part en **un seul `write()`** (le
 pilote tty serialise les ecritures) et si l'on ne reconfigure pas le port ; l'ACK du MCU est alors lu par
 ivi-services. Lire `/dev/ttyS1` en parallele vole les octets a ivi-services : preferer le journal `JLOG` ci-dessus.
-C'est ce que fait l'app `apps/jacmcu` (pont natif `jacbridge` lance par `su`).
+C'est ce que fait l'app JacMCU ([MCU-tools-app](https://github.com/LibreHU/MCU-tools-app), pont natif `jacbridge` lance par `su`).
 
 ### 13.3 TWRP / Linux / PC
 Ici rien d'autre n'ouvre le port : acces direct a `/dev/ttyS1` (TWRP : `touchfix`, journal `/tmp/mcu.log`).
