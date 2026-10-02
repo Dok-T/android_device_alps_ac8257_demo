@@ -1,5 +1,12 @@
 # Changelog
 
+## Non publie
+
+### Nouveau
+- **Audio : musique muette** (`tools/audio/no_deep_buffer.sh`, `docs/audio_deep_buffer.md`) : retire la sortie
+  `deep_buffer` (PCM MultiMedia2, muette sur l'unite) de `audio_policy_configuration.xml` pour faire passer la
+  musique par `primary`. Sauvegarde, verification et retour arriere (`restore`).
+
 ## v1.1 — depuis 3.7.1_12 (`858a3c4`)
 
 Teste sur l'appareil : menu de demarrage, tableau de bord, barre d'etat, frein a main, sortie console des menus.
